@@ -2,7 +2,7 @@
 window.EXPATS_CONFIG = Object.freeze({
   version: 'v1.0',
   teamName: 'Expats F.C.',
-  spreadsheetId: 'https://docs.google.com/spreadsheets/d/13VzgnDyhlp8fXr8za4UVACNymPoR9WqYG5GWx-fyKZQ/edit', // ID del foglio Google (tra /d/ e /edit nell'URL)
+  spreadsheetId: '13VzgnDyhlp8fXr8za4UVACNymPoR9WqYG5GWx-fyKZQ', // ID del foglio Google (tra /d/ e /edit nell'URL)
   googleClientId: '512727650048-n2acft1ds13c3hf3hfj01tc673ibrjad.apps.googleusercontent.com', // ID client OAuth 2.0, tipo Applicazione web
   publicMode: true
 });
