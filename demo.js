@@ -3,7 +3,7 @@
  * Questi dati sono una DEMO LOCALE: si modificano su Drive solo dopo la configurazione.
  */
 window.EXPATS_DEMO = {
-  seasons: [{ id: 's-import', name: 'Stagione iniziale (import)', start: '', end: '' }],
+  seasons: [{ id: 's-import', name: '2025/26', start: '2025-07-01', end: '2026-06-30' },{id:'s-2026-27',name:'2026/27',start:'2026-07-01',end:'2027-06-30'}],
   players: [
     ['p1',1,'Antonio','Stridi','ATTIVO','Portiere'],
     ['p2',2,'Andrea','Minuti','ATTIVO',''],
@@ -24,6 +24,10 @@ window.EXPATS_DEMO = {
     ['p18',18,'Panos','Geneopoulos','ATTIVO',''],
     ['p31',31,'Giorgio','Macauda','ATTIVO','']
   ].map(([id, number, firstName, lastName, status, role]) => ({id,number,firstName,lastName,status,role,notes:''})),
+  memberships: [
+    ...[1,2,3,4,5,6,7,8,9,10,11,13,14,15,16,17,18,31].map(n=>({seasonId:'s-import',playerId:'p'+n,inRoster:true})),
+    ...[1,2,3,4,5,6,7,8,9,10,11,13,14,15,16,17,18,31].map(n=>({seasonId:'s-2026-27',playerId:'p'+n,inRoster:true}))
+  ],
   matches: [],
   lineups: [],
   baseline: [
