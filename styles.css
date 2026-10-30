@@ -83,3 +83,51 @@
 .season-registration-fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
 .season-registration-fields .field label{font-size:12px}
 @media(max-width:650px){.season-registration-fields{grid-template-columns:1fr}}
+
+
+/* v1.6 — Maglie più larghe, arancione portiere, interfaccia più leggibile */
+html{font-size:16px}
+body{font-family:'Exo 2',Inter,Arial,sans-serif;font-size:16px;font-weight:500;line-height:1.48}
+button,input,select,textarea{font-family:inherit}
+/* Maglie azzurre dei giocatori di movimento, arancioni per il portiere */
+.shirt-wrap{width:61px;height:50px}
+.shirt-large{width:96px;height:84px}
+.shirt-number{font-family:'Exo 2',sans-serif;font-size:19px;font-weight:900;top:57%;color:#fff;text-shadow:0 1px 3px #184672}
+.shirt-large .shirt-number{font-size:28px}
+.shirt-keeper .shirt-number{color:#0b1c2a;text-shadow:none}
+.shirt-svg{filter:drop-shadow(0 4px 7px rgba(0,0,0,.3))}
+.col-shirt{min-width:86px}
+.roster-entry .shirt-wrap{width:44px;height:38px}
+.roster-entry .shirt-number{font-size:13px}
+.player-portrait{min-width:100px;width:110px;height:103px}
+/* Contenuti più grandi e leggibili; la tabella rimane scrollabile su mobile */
+.roster-table{min-width:1480px}
+.roster-table .col-name{min-width:120px}
+.inline-cell{min-width:168px}
+.roster-table th,.roster-table td{padding:13px 12px}
+.data-table th{font-size:12px;letter-spacing:.55px}
+.data-table td{font-size:15px}
+.inline-select{font-size:15px;min-width:140px;min-height:42px;padding:9px 29px 9px 10px}
+.metric-cell{min-width:88px}
+.metric-value{font-size:16px}
+.metric-track{width:75px;height:6px}
+.row-index{font-size:15px}
+.chip,.status-pill,.role-pill{font-size:13px}
+.nav-item{font-size:15px}
+.page-title{font-size:36px}
+.page-subtitle{font-size:15px}
+.btn{font-size:14px}
+.btn-small{font-size:13px}
+.notice,.modal-explainer,.form-guide{font-size:13px;line-height:1.65}
+.field label,.season-registration-fields .field label{font-size:14px}
+.form-control,.filter-select,.search{font-size:15px}
+.stat-card-label,.stat-foot,.panel-caption,.bar-person,.panel .info-step p{font-size:13px}
+.bar-person small{font-size:12px}
+.roster-entry .player-label{font-size:14px}
+.roster-header{font-size:12px}
+@media(max-width:560px){
+  .roster-table{min-width:1480px}
+  .nav-item{font-size:13px}
+  .page-title{font-size:31px}
+  .topbar select,.topbar .btn{font-size:13px}
+}

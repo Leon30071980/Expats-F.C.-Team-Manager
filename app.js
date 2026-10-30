@@ -1,4 +1,4 @@
-/* EXPATS F.C. TEAM MANAGER — v1.5
+/* EXPATS F.C. TEAM MANAGER — v1.6
  * Frontend statico GitHub Pages + Google Sheets API (edit via OAuth) + GViz JSONP (pubblico).
  * Il controllo delle modifiche dipende dai permessi Google Drive sul foglio.
  */
@@ -6,12 +6,12 @@
   'use strict';
   const CFG = window.EXPATS_CONFIG;
   const SHEETS = ['Giocatori','Stagioni','Partite','Distinte','Pregresso','Tesseramenti','Ruoli','Stati'];
-  const VERSION='v1.5';
+  const VERSION='v1.6';
   const state = {
     data: structuredClone(window.EXPATS_DEMO),
     source: 'demo', view: 'dashboard', seasonId: '', rosterScope: 'season',
     sort: {key:'number',dir:1}, search:'', filter:'TUTTI',
-    token: '', sheetIds: {}, busy: false, lastError: ''
+    token: '', sheetIds: {}, busy: false, inlineSaving:false, lastError: ''
   };
   const $ = (sel, root=document) => root.querySelector(sel);
   const el = (name, attrs={}) => Object.assign(document.createElement(name), attrs);
@@ -95,12 +95,14 @@
     const items=kind==='role'?rows.map(r=>({key:r.name,label:r.name})):rows.map(r=>({key:r.id,label:r.name}));
     if(selected && !items.some(o=>o.key===selected))items.push({key:selected,label:kind==='role'?selected:statusText(selected)});
     const c=selected?(kind==='status'?safeColor(statusInfo(selected).color):roleColor(selected)):null;
-    return `<select class="inline-select" ${c?`style="background:${c};color:${readableText(c)}"`:''} data-inline="${kind}" data-id="${esc(id)}" aria-label="Modifica ${kind==='role'?'ruolo':'stato'}" ${state.busy?'disabled':''}><option value="" ${!selected?'selected':''}>—</option>${items.map(o=>`<option value="${esc(o.key)}" ${o.key===selected?'selected':''}>${esc(o.label)}</option>`).join('')}</select>`;
+    return `<select class="inline-select" ${c?`style="background:${c};color:${readableText(c)}"`:''} data-inline="${kind}" data-id="${esc(id)}" aria-label="Modifica ${kind==='role'?'ruolo':'stato'}" ><option value="" ${!selected?'selected':''}>—</option>${items.map(o=>`<option value="${esc(o.key)}" ${o.key===selected?'selected':''}>${esc(o.label)}</option>`).join('')}</select>`;
   };
   const keys = ['called','played','goals','assists','yellow','red'];
   const statLabels={called:'Convocazioni',played:'Presenze',goals:'Gol',assists:'Assist',yellow:'Gialli',red:'Rossi'};
 
-  const jersey = (number,large=false) => `<span class="shirt-wrap ${large?'shirt-large':''}" aria-label="Maglia numero ${esc(number)}"><svg class="shirt-svg" viewBox="0 0 64 68" aria-hidden="true"><path d="M23 5h18l6 8 14 9-9 17-8-4v29H20V35l-8 4L3 22l14-9z" fill="#62b8ff" stroke="#d6ecff" stroke-width="2.2" stroke-linejoin="round"/><path d="M24 5q8 12 16 0" stroke="#2e78c3" stroke-width="3" fill="none"/><path d="M20 37v25M44 37v25" stroke="#368fdf" stroke-width="1" opacity=".6"/></svg><span class="shirt-number">${esc(number)}</span></span>`;
+  // Maglia larga; variante ARANCIONE per chi ricopre un ruolo di tipo PORTIERE
+  // nella stagione selezionata. Il numero resta indipendente per tesseramento.
+  const jersey = (number,large=false,keeper=false) => `<span class="shirt-wrap ${large?'shirt-large':''} ${keeper?'shirt-keeper':'shirt-outfield'}" aria-label="Maglia ${keeper?'portiere arancione':'azzurra'} numero ${esc(number)}"><svg class="shirt-svg" viewBox="0 0 100 80" aria-hidden="true"><path d="M32 7H68L79 18 94 25 86 44 76 40V73H24V40L14 44 6 25 21 18Z" fill="${keeper?'#ff9e38':'#61baf7'}" stroke="${keeper?'#ffcf91':'#bce9ff'}" stroke-width="2.5" stroke-linejoin="round"/><path d="M39 7Q50 20 61 7" stroke="${keeper?'#a84c07':'#2278b8'}" stroke-width="3.8" fill="none"/><path d="M25 41V69M75 41V69" stroke="${keeper?'#db6c16':'#2e8fcf'}" stroke-width="1.4" opacity=".5"/><path d="M22 19L13 29M78 19L87 29" stroke="${keeper?'#ffcc89':'#d5efff'}" stroke-width="2" opacity=".7"/></svg><span class="shirt-number">${esc(number)}</span></span>`;
   const lineupStat=(l,key,playerId)=>{
     if(key==='called'||key==='played')return one(l?.[key])?1:0;
     if(key==='goals'){
@@ -205,7 +207,7 @@
       const v=keeperGoals?(-Math.abs(Math.trunc(num(p[k])))||0):positiveInt(p[k]);
       return `<td class="metric-cell metric-${k} ${keeperGoals?'keeper-goals':''}" title="${keeperGoals?'Gol subiti dal portiere':'Statistica stagionale'}"><div class="metric-value">${v}</div>${keeperGoals?'':`<div class="metric-track"><span style="width:${Math.min(100,Math.round(100*v/maximum[k]))}%"></span></div>`}</td>`;
     };
-    return rows.map((p,i)=>`<tr class="clickable" data-player="${esc(p.id)}" title="Dettaglio ${esc(name(p))}"><td class="row-index">${i+1}</td><td class="col-shirt">${jersey(p.number)}</td><td class="col-name">${esc(p.firstName)}</td><td class="col-name">${esc(p.lastName)}</td><td class="inline-cell">${editor()?dropdown('role',p.role,p.id):roleBadge(p.role)}</td><td class="inline-cell">${editor()?dropdown('status',p.status,p.id):statusBadge(p.status)}</td>${isAfterFirstSeason(state.seasonId)?`<td class="num season-num">${seasonsPlayed(p.id)}</td>`:''}${keys.map(k=>metric(p,k)).join('')}</tr>`).join('');
+    return rows.map((p,i)=>`<tr class="clickable" data-player="${esc(p.id)}" title="Dettaglio ${esc(name(p))}"><td class="row-index">${i+1}</td><td class="col-shirt">${jersey(p.number,false,isKeeper(p))}</td><td class="col-name">${esc(p.firstName)}</td><td class="col-name">${esc(p.lastName)}</td><td class="inline-cell">${editor()?dropdown('role',p.role,p.id):roleBadge(p.role)}</td><td class="inline-cell">${editor()?dropdown('status',p.status,p.id):statusBadge(p.status)}</td>${isAfterFirstSeason(state.seasonId)?`<td class="num season-num">${seasonsPlayed(p.id)}</td>`:''}${keys.map(k=>metric(p,k)).join('')}</tr>`).join('');
   }
   function renderPlayers() {
     return intro('ROSA UFFICIALE','I nostri giocatori','Maglia, ruolo e stato indipendenti per stagione, modificabili dalla rosa e dalla scheda giocatore.',`<button class="btn btn-secondary" data-action="export">↓ Esporta CSV</button><button class="btn btn-primary only-editor" data-action="new-player">＋ Nuovo giocatore</button>`)+banner()+
@@ -234,7 +236,7 @@
     `<div class="two-cards"><div class="panel"><div class="panel-heading"><h2 class="panel-title">🔐 Stato connessione</h2></div><div class="breakdown"><div><span>Versione applicazione</span><strong>${VERSION}</strong></div><div><span>Origine dati</span><strong>${state.source==='drive'?'Google Drive':'Demo locale'}</strong></div><div><span>Modalità</span><strong>${editor()?'Google OAuth attivo':'Sola consultazione'}</strong></div><div><span>Archivio</span><strong>${CFG.spreadsheetId?'Configurato':'Da configurare'}</strong></div></div><p class="notice">Le autorizzazioni di scrittura non sono affidate al sito GitHub: le controlla Google tramite i permessi del foglio.</p></div>
       <div class="panel"><div class="panel-heading"><h2 class="panel-title">📂 Dove sono salvati i dati?</h2></div><p class="form-guide">Tutte le informazioni sono conservate in un unico Google Sheets nel tuo Drive, diviso in 8 schede.</p><div class="breakdown">${SHEETS.map(s=>`<div><span>${esc(s)}</span><strong>Google Sheets</strong></div>`).join('')}</div>${CFG.spreadsheetId?`<p><a target="_blank" rel="noopener noreferrer" href="https://docs.google.com/spreadsheets/d/${encodeURIComponent(CFG.spreadsheetId)}/edit">Apri archivio Google Sheets ↗</a></p>`:''}</div></div>
     <div class="panel mt-20"><div class="panel-heading"><h2 class="panel-title">🎨 Ruoli, stati e colori</h2></div><p class="form-guide">Personalizza ruoli e stati, compreso il colore di ciascuno. Il tipo Portiere resta un attributo dei ruoli. Le scelte sono memorizzate su Google Sheets e sono valide per tutti.</p><div class="intro-buttons"><button class="btn btn-secondary only-editor" data-action="manage-roles">Gestisci ruoli e colori</button><button class="btn btn-secondary only-editor" data-action="manage-states">Gestisci stati e colori</button></div><div class="catalog-overview">${availableRoles().map(x=>roleBadge(x.name)).join(' ')}${availableStates().map(x=>statusBadge(x.id)).join(' ')}</div></div>
-    <div class="panel mt-20"><div class="panel-heading"><h2 class="panel-title">🚀 Messa online</h2></div><div class="two-cards"><div class="info-step"><h3>1. Aggiorna il database esistente</h3><p>Nel Google Sheet già collegato: Estensioni → Apps Script. Sostituisci il vecchio script con <strong>setup.gs</strong> e avvia <strong>aggiornaDatabaseV15()</strong>. Aggiunge a Tesseramenti le colonne Maglia, Ruolo e Stato per ogni stagione, senza cancellare la cronologia.</p></div><div class="info-step"><h3>2. Conserva l’accesso Google</h3><p>Se l’app v1.0 già funziona, non modificare <strong>config.js</strong> né l’ID client OAuth: rimangono validi.</p></div><div class="info-step"><h3>3. Pubblica i file v1.5</h3><p>Carica sullo stesso repository GitHub <strong>index.html, app.js, demo.js e styles.css</strong>. Non sovrascrivere config.js.</p></div><div class="info-step"><h3>4. Importa risultati 2025/26</h3><p>Seleziona 2025/26 → Partite e risultati → Importa risultati CSV. Puoi modificare risultato e distinta cliccando una partita; le statistiche già nel pregresso possono essere assorbite senza duplicazioni.</p></div></div><p class="notice mt-20">Per tutte le istruzioni operative, vedere il file LEGGIMI.md incluso nel progetto.</p></div>`;
+    <div class="panel mt-20"><div class="panel-heading"><h2 class="panel-title">🚀 Messa online</h2></div><div class="two-cards"><div class="info-step"><h3>1. Aggiorna il database esistente</h3><p>Per passare dalla <strong>v1.5 alla v1.6</strong> non occorre aggiornare Google Sheets né Apps Script. Il database già configurato rimane invariato.</p></div><div class="info-step"><h3>2. Conserva l’accesso Google</h3><p>Se l’app è già collegata a Google, non modificare <strong>config.js</strong> né l’ID client OAuth: rimangono validi.</p></div><div class="info-step"><h3>3. Pubblica i file v1.6</h3><p>Aggiornamento v1.6: carica <strong>index.html, app.js e styles.css</strong>. Non devi eseguire nuove migrazioni del database; non sovrascrivere config.js.</p></div><div class="info-step"><h3>4. Importa risultati 2025/26</h3><p>Seleziona 2025/26 → Partite e risultati → Importa risultati CSV. Puoi modificare risultato e distinta cliccando una partita; le statistiche già nel pregresso possono essere assorbite senza duplicazioni.</p></div></div><p class="notice mt-20">Per tutte le istruzioni operative, vedere il file LEGGIMI.md incluso nel progetto.</p></div>`;
   }
   function render() {
     if(!state.data.seasons.some(s=>s.id===state.seasonId)) state.seasonId=defaultSeason()?.id||'';
@@ -252,7 +254,7 @@
   function profile(playerId) {
     const p=statsForSeason(state.seasonId).find(p=>p.id===playerId); if(!p)return;
     const played=state.data.lineups.filter(l=>l.playerId===p.id && state.data.matches.some(m=>m.id===l.matchId&&m.seasonId===state.seasonId));
-    const body=`<div class="profile-hero"><div class="player-portrait">${jersey(p.number,true)}</div><div><div class="eyebrow">SCHEDA GIOCATORE</div><h3 class="profile-title">${esc(name(p))}</h3>${statusBadge(p.status)} ${roleBadge(p.role)}</div></div><div class="profile-stats">${[['Convocazioni',p.called],['Presenze',p.played],['Gol',isKeeper(p)?(-Math.abs(p.goals)||0):p.goals],['Assist',p.assists],['Gialli',p.yellow],['Rossi',p.red],...(isAfterFirstSeason(state.seasonId)?[['Stagioni',seasonsPlayed(p.id)]]:[])].map(([label,n])=>`<div><strong>${n}</strong><small>${label}</small></div>`).join('')}</div>${p.notes?`<p class="form-guide">${esc(p.notes)}</p>`:''}<hr class="soft-rule"><h3 class="panel-title">Statistiche registrate per partita</h3>${played.length?played.map(l=>{const m=state.data.matches.find(m=>m.id===l.matchId);return `<div class="result-line"><span>${esc(m?.opponent)} · ${localeDate(m?.date)}</span><span>⚽ ${lineupStat(l,'goals',l.playerId)} · 🎯 ${positiveInt(l.assists)}</span></div>`}).join(''):'<p class="form-guide">Le statistiche pregresse sono aggregate; non è disponibile il dettaglio delle vecchie partite.</p>'}`;
+    const body=`<div class="profile-hero"><div class="player-portrait">${jersey(p.number,true,isKeeper(p))}</div><div><div class="eyebrow">SCHEDA GIOCATORE</div><h3 class="profile-title">${esc(name(p))}</h3>${statusBadge(p.status)} ${roleBadge(p.role)}</div></div><div class="profile-stats">${[['Convocazioni',p.called],['Presenze',p.played],['Gol',isKeeper(p)?(-Math.abs(p.goals)||0):p.goals],['Assist',p.assists],['Gialli',p.yellow],['Rossi',p.red],...(isAfterFirstSeason(state.seasonId)?[['Stagioni',seasonsPlayed(p.id)]]:[])].map(([label,n])=>`<div><strong>${n}</strong><small>${label}</small></div>`).join('')}</div>${p.notes?`<p class="form-guide">${esc(p.notes)}</p>`:''}<hr class="soft-rule"><h3 class="panel-title">Statistiche registrate per partita</h3>${played.length?played.map(l=>{const m=state.data.matches.find(m=>m.id===l.matchId);return `<div class="result-line"><span>${esc(m?.opponent)} · ${localeDate(m?.date)}</span><span>⚽ ${lineupStat(l,'goals',l.playerId)} · 🎯 ${positiveInt(l.assists)}</span></div>`}).join(''):'<p class="form-guide">Le statistiche pregresse sono aggregate; non è disponibile il dettaglio delle vecchie partite.</p>'}`;
     modal(name(p),body,`<button class="btn btn-secondary" data-action="close-modal">Chiudi</button><button class="btn btn-secondary only-editor" data-action="edit-baseline" data-id="${esc(p.id)}">Correggi pregresso</button><button class="btn btn-primary only-editor" data-action="edit-player" data-id="${esc(p.id)}">Modifica giocatore</button>${isMember(p.id,state.seasonId)?`<button class="btn btn-danger only-editor" data-action="remove-from-roster" data-id="${esc(p.id)}">Rimuovi dalla rosa ${esc(activeSeason().name)}</button>`:`<button class="btn btn-secondary only-editor" data-action="restore-to-roster" data-id="${esc(p.id)}">Reinserisci in rosa ${esc(activeSeason().name)}</button>`}`);
   }
   function playerForm(playerId='') {
@@ -288,7 +290,7 @@
     state.data.lineups.filter(l=>l.matchId===match?.id).forEach(l=>allIds.add(l.playerId));
     const players=[...state.data.players].filter(p=>allIds.has(p.id)).map(p=>seasonPlayer(p,seasonId)).sort((a,b)=>num(a.number)-num(b.number)||name(a).localeCompare(name(b),'it'));
     const stored=new Map(state.data.lineups.filter(l=>l.matchId===match?.id).map(l=>[l.playerId,l]));
-    return `<div class="lineup-controls"><button type="button" class="btn btn-secondary btn-small" data-action="mark-all-called">✓ Convoca tutti</button><button type="button" class="btn btn-secondary btn-small" data-action="clear-all-called">× Azzera convocazioni</button><span id="lineup-summary" class="lineup-summary" aria-live="polite"></span></div><div class="roster-form"><div class="roster-header"><span style="text-align:left">GIOCATORE</span><span>CONV.</span><span>PRES.</span><span>GOL</span><span>ASSIST</span><span>🟨</span><span>🟥</span></div>${players.map(p=>{const l=stored.get(p.id)||{};return `<div class="roster-entry ${one(l.called)?'is-called':''}" data-player-id="${esc(p.id)}" data-keeper="${isKeeper(p)?1:0}"><span class="player-label">${jersey(p.number)} ${esc(name(p))}${p.status==='INFORTUNATO'?'<small> · INFORTUNATO</small>':''}</span><input type="checkbox" data-line="called" ${one(l.called)?'checked':''} aria-label="Convocato ${esc(name(p))}"><input type="checkbox" data-line="played" ${one(l.played)?'checked':''} aria-label="Presenza ${esc(name(p))}">${['goals','assists','yellow','red'].map(k=>`<input type="number" data-line="${k}" value="${k==='goals'&&isKeeper(p)?Math.abs(Math.trunc(num(l[k]))):positiveInt(l[k])}" min="0" max="${k==='yellow'?2:k==='red'?1:99}" step="1" ${one(l.played)?'':'disabled'} aria-label="${k==='goals'&&isKeeper(p)?'Gol subiti':statLabels[k]} ${esc(name(p))}">`).join('')}</div>`}).join('')}</div>${!players.length?'<p class="notice">Non ci sono giocatori tesserati in questa stagione: aggiungili dalla Rosa.</p>':''}`;
+    return `<div class="lineup-controls"><button type="button" class="btn btn-secondary btn-small" data-action="mark-all-called">✓ Convoca tutti</button><button type="button" class="btn btn-secondary btn-small" data-action="clear-all-called">× Azzera convocazioni</button><span id="lineup-summary" class="lineup-summary" aria-live="polite"></span></div><div class="roster-form"><div class="roster-header"><span style="text-align:left">GIOCATORE</span><span>CONV.</span><span>PRES.</span><span>GOL</span><span>ASSIST</span><span>🟨</span><span>🟥</span></div>${players.map(p=>{const l=stored.get(p.id)||{};return `<div class="roster-entry ${one(l.called)?'is-called':''}" data-player-id="${esc(p.id)}" data-keeper="${isKeeper(p)?1:0}"><span class="player-label">${jersey(p.number,false,isKeeper(p))} ${esc(name(p))}${p.status==='INFORTUNATO'?'<small> · INFORTUNATO</small>':''}</span><input type="checkbox" data-line="called" ${one(l.called)?'checked':''} aria-label="Convocato ${esc(name(p))}"><input type="checkbox" data-line="played" ${one(l.played)?'checked':''} aria-label="Presenza ${esc(name(p))}">${['goals','assists','yellow','red'].map(k=>`<input type="number" data-line="${k}" value="${k==='goals'&&isKeeper(p)?Math.abs(Math.trunc(num(l[k]))):positiveInt(l[k])}" min="0" max="${k==='yellow'?2:k==='red'?1:99}" step="1" ${one(l.played)?'':'disabled'} aria-label="${k==='goals'&&isKeeper(p)?'Gol subiti':statLabels[k]} ${esc(name(p))}">`).join('')}</div>`}).join('')}</div>${!players.length?'<p class="notice">Non ci sono giocatori tesserati in questa stagione: aggiungili dalla Rosa.</p>':''}`;
   }
   function matchForm(matchId='') {
     if(!editor()){toast('Accedi con Google per registrare o modificare una partita.',true);return;}
@@ -402,7 +404,7 @@
     };
     const rows=[labels,...playerRows().map((p,i)=>[i+1,...fields.map(k=>k==='seasons'?seasonsPlayed(p.id):p[k])])];
     const csv='\ufeff'+rows.map(row=>row.map(escapeCSV).join(';')).join('\r\n');
-    const blob=new Blob([csv],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=el('a',{href:url,download:`expats-fc-${state.seasonId}-v1.5.csv`});
+    const blob=new Blob([csv],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=el('a',{href:url,download:`expats-fc-${state.seasonId}-v1.6.csv`});
     document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),2000);toast('Classifica esportata in CSV.');
   }
   // --- Google Drive: lettura pubblica via Google Visualization JSONP ---
@@ -517,15 +519,21 @@
     return [b.seasonId,b.playerId,...keys.map(k=>k==='goals'?Math.trunc(num(values[k])):positiveInt(values[k]))];
   }
   async function withBusy(fn) {
-    if(state.busy)return;
+    if(state.busy || state.inlineSaving)return;
     state.busy=true;
+    document.querySelectorAll('.inline-select').forEach(s=>{s.disabled=true;});
     document.querySelectorAll('#modal-root button[data-action^="save-"]').forEach(b=>{b.disabled=true;b.textContent='Salvataggio…';});
     try{await fn();closeModal();await refreshData();toast('Dati salvati su Google Drive.');return true;}
     catch(err){toast('Salvataggio non riuscito: '+safeError(err),true);document.querySelectorAll('#modal-root button[data-action^="save-"]').forEach(b=>{b.disabled=false;b.textContent='Riprova salvataggio';});return false;}
-    finally{state.busy=false;}
+    finally{
+      state.busy=false;
+      // refreshData() ridisegna la rosa durante il salvataggio: riattivare i menu
+      // esistenti nel DOM, non soltanto i vecchi nodi che sono stati sostituiti.
+      document.querySelectorAll('.inline-select').forEach(s=>{s.disabled=false;});
+    }
   }
   async function saveInline(select) {
-    if(!editor()||state.busy)return;
+    if(!editor()||state.busy||state.inlineSaving)return;
     const base=state.data.players.find(x=>x.id===select.dataset.id);if(!base)return;
     const p=seasonPlayer(base,state.seasonId);
     const col=select.dataset.inline==='status'?'status':'role';
@@ -537,14 +545,20 @@
     if(col==='role'&&isKeeper(p)!==(state.data.roles.find(r=>r.name===next)?.type==='PORTIERE') && (state.data.baseline.some(b=>b.playerId===p.id&&b.seasonId===state.seasonId&&b.goals!==0)||state.data.lineups.some(l=>l.playerId===p.id&&l.goals!==0&&state.data.matches.some(m=>m.id===l.matchId&&m.seasonId===state.seasonId)))){
       select.value=p[col];toast('Questa stagione ha già gol registrati: riconcilia i dati prima di cambiare tra Portiere e movimento.',true);return;
     }
-    const previous=p[col]; select.disabled=true;
+    const previous=p[col];
+    state.inlineSaving=true;
+    document.querySelectorAll('.inline-select').forEach(s=>{s.disabled=true;});
     const old=registration(p.id,state.seasonId);
     const row=registrationValues(state.seasonId,p.id,isMember(p.id,state.seasonId),p.number,col==='role'?next:p.role,col==='status'?next:p.status);
     try {
       await writeAtomic([{sheet:'Tesseramenti',...(old?{row:old._row}:{}),rows:[row]}]);
       await refreshData();toast('Valore aggiornato soltanto per '+activeSeason().name+'.');
     }catch(e){select.value=previous;toast('Modifica non salvata: '+safeError(e),true);}
-    finally{select.disabled=false;}
+    finally{
+      state.inlineSaving=false;
+      // La risposta da Google ricrea i select: sblocchiamo quelli correnti.
+      document.querySelectorAll('.inline-select').forEach(s=>{s.disabled=false;});
+    }
   }
   function catalogModal(kind) {
     if(!editor())return;
