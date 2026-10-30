@@ -1,4 +1,4 @@
-/* EXPATS F.C. TEAM MANAGER — v1.13
+/* EXPATS F.C. TEAM MANAGER — v1.14
  * Frontend statico GitHub Pages + Google Sheets API (edit via OAuth) + GViz JSONP (pubblico).
  * Il controllo delle modifiche dipende dai permessi Google Drive sul foglio.
  */
@@ -6,7 +6,7 @@
   'use strict';
   const CFG = window.EXPATS_CONFIG;
   const SHEETS = ['Giocatori','Stagioni','Partite','Distinte','Pregresso','Tesseramenti','Ruoli','Stati'];
-  const VERSION='v1.13';
+  const VERSION='v1.14';
   const state = {
     data: structuredClone(window.EXPATS_DEMO),
     source: 'demo', view: 'dashboard', seasonId: '', rosterScope: 'season',
@@ -155,10 +155,23 @@
     const ids=new Set(state.data.matches.filter(m=>m.seasonId===sid).map(m=>m.id));
     return state.data.lineups.some(l=>l.playerId===id && ids.has(l.matchId) && one(l.played) && (l.matchRole==='PORTIERE'||goalParts(l).conceded>0));
   };
-  const dualKitNeeded = (role,playerId,seasonId) => hasOutfieldRole(role) &&
-    (isKeeperRole(role)||playedKeeperInSeason(playerId,seasonId));
+  // v1.14: la doppia maglia dipende dalla presenza di almeno un ruolo
+  // di movimento e uno da portiere, oppure da una presenza occasionale in porta.
+  // Nel catalogo ruoli creato dall'utente possono esserci voci personalizzate
+  // con tipo incongruente: i nomi calcistici riconoscibili offrono un fallback
+  // per la VISUALIZZAZIONE senza modificare catalogo, gol o tesseramenti.
+  const visualMovementRole = role => {
+    const def=state.data.roles.find(x=>x.name===role);
+    return def?.type==='MOVIMENTO' || /^(difensor|centrocamp|attacc|terzin|mediano|esterno|ala\b|punta\b|trequart|jolly\b|centrale\b)/i.test(role);
+  };
+  const dualKitNeeded = (role,playerId,seasonId) => {
+    const assigned=rolesOf(role);
+    const movement=assigned.some(visualMovementRole);
+    const keeper=isKeeperRole(role) || assigned.some(n=>/^portiere\b/i.test(n)) || playedKeeperInSeason(playerId,seasonId);
+    return movement && keeper;
+  };
   const keeperKitNumber = p => p.keeperNumber==null ? p.number : p.keeperNumber;
-  const kitForMatch = (p,keeper) => keeper && (hasOutfieldRole(p.role)||playedKeeperInSeason(p.id,state.seasonId)) ? keeperKitNumber(p) : p.number;
+  const kitForMatch = (p,keeper,seasonId=state.seasonId) => keeper && dualKitNeeded(p.role,p.id,seasonId) ? keeperKitNumber(p) : p.number;
   const playerJerseys = (p,large=false,seasonId=state.seasonId) => {
     if(!p)return '';
     if(dualKitNeeded(p.role,p.id,seasonId))
@@ -291,7 +304,7 @@
   function renderPlayers() {
     return intro('ROSA UFFICIALE','I nostri giocatori','Maglia, ruoli multipli e stato indipendenti per stagione, modificabili dalla rosa e dalla scheda giocatore.',`<button class="btn btn-secondary" data-action="export">↓ Esporta CSV</button><button class="btn btn-primary only-editor" data-action="new-player">＋ Nuovo giocatore</button>`)+banner()+
       `<div class="toolbar"><button class="btn btn-secondary only-editor" data-action="manage-roles">🎨 Ruoli e colori</button><button class="btn btn-secondary only-editor" data-action="manage-states">🎨 Stati e colori</button><select id="roster-scope" class="filter-select" aria-label="Rosa della stagione"><option value="season" ${state.rosterScope==='season'?'selected':''}>Rosa stagione</option><option value="all" ${state.rosterScope==='all'?'selected':''}>Tutti i giocatori</option></select><input id="player-search" class="search" type="search" placeholder="Cerca per nome, maglia o ruolo..." value="${esc(state.search)}" aria-label="Cerca giocatore"><select id="status-filter" class="filter-select" aria-label="Filtra per stato"><option value="TUTTI" ${state.filter==='TUTTI'?'selected':''}>Tutti gli stati</option>${availableStates().map(item=>{const x=item.id;return `<option value="${x}" ${state.filter===x?'selected':''}>${statusText(x)}</option>`}).join('')}</select></div>
-      <div class="table-shell"><table class="data-table roster-table"><thead><tr><th class="col-count" title="Numerazione progressiva delle righe visualizzate">N°</th><th class="sortable" data-sort="number" title="Numero di maglia">Maglia${state.sort.key==='number'?(state.sort.dir===1?' ↑':' ↓'):''}</th>${[['firstName','Nome'],['lastName','Cognome'],['role','Ruolo'],['status','Stato'],...(isAfterFirstSeason(state.seasonId)?[['seasons','Stagioni']]:[]),['called','Conv.'],['played','Pres.'],['goals','Gol'],['assists','Assist'],['yellow','Gialli'],['red','Rossi']].map(([k,label])=>`<th class="sortable" data-sort="${k}">${label}${state.sort.key===k?(state.sort.dir===1?' ↑':' ↓'):''}</th>`).join('')}</tr></thead><tbody id="players-tbody">${playersTable()}</tbody></table></div><p class="notice">N° = posizione progressiva nella tabella · Maglia = numero scelto dal giocatore; con ruoli misti due maglie (azzurra e arancione), ciascuna con numero stagionale indipendente. Le barre confrontano i valori della stessa colonna nella rosa visualizzata. I gol subiti sono negativi e senza barra; per i giocatori con ruoli da portiere e movimento sono sempre visibili due valori (es. 0 / −3), anche se i gol fatti sono zero. Clicca sulla matita accanto ai badge Ruolo o sul menu Stato per modificarli solo nella stagione scelta. La colonna Ruolo si allarga per mostrare tutti i badge su un’unica riga. Per cambiare maglia, apri Modifica giocatore. Apri la scheda di un giocatore per rimuoverlo dalla rosa della stagione senza cancellarne lo storico. La colonna Stagioni appare dalla seconda stagione e conta solo quelle fino alla stagione scelta.</p>`;
+      <div class="table-shell"><table class="data-table roster-table"><thead><tr><th class="col-count" title="Numerazione progressiva delle righe visualizzate">N°</th><th class="sortable" data-sort="number" title="Numero di maglia">Maglia${state.sort.key==='number'?(state.sort.dir===1?' ↑':' ↓'):''}</th>${[['firstName','Nome'],['lastName','Cognome'],['role','Ruolo'],['status','Stato'],...(isAfterFirstSeason(state.seasonId)?[['seasons','Stagioni']]:[]),['called','Conv.'],['played','Pres.'],['goals','Gol'],['assists','Assist'],['yellow','Gialli'],['red','Rossi']].map(([k,label])=>`<th class="sortable" data-sort="${k}">${label}${state.sort.key===k?(state.sort.dir===1?' ↑':' ↓'):''}</th>`).join('')}</tr></thead><tbody id="players-tbody">${playersTable()}</tbody></table></div><p class="notice">N° = posizione progressiva nella tabella · Maglia = numero scelto dal giocatore; con ruoli misti due maglie (azzurra e arancione), ciascuna con numero stagionale indipendente. Le barre confrontano i valori della stessa colonna nella rosa visualizzata. I gol subiti sono negativi e senza barra; per i giocatori con ruoli da portiere e movimento sono sempre visibili due valori (es. 0 / −3), anche se i gol fatti sono zero. Clicca sulla matita accanto ai badge Ruolo o sul menu Stato per modificarli solo nella stagione scelta. Le maglie doppie (azzurra/arancione) si attivano per i ruoli misti anche se il catalogo contiene tipi statistici personalizzati. La colonna Ruolo si allarga per mostrare tutti i badge su un’unica riga. Per cambiare maglia, apri Modifica giocatore. Apri la scheda di un giocatore per rimuoverlo dalla rosa della stagione senza cancellarne lo storico. La colonna Stagioni appare dalla seconda stagione e conta solo quelle fino alla stagione scelta.</p>`;
   }
   const matchLine = m=>{const f=fixture(m);return `<div class="result-line clickable" data-match="${esc(m.id)}"><div><div class="opponent">${esc(f.home)} <span class="muted">vs</span> ${esc(f.away)}</div><div class="meta">${localeDate(m.date)} · ${esc(m.venue==='T'?'Trasferta':'Casa')} · ${esc(m.competition||'Campionato')}${positiveInt(m.ownGoalsFor)?` · ${positiveInt(m.ownGoalsFor)} autogol a favore`:''}</div></div><div class="results-head"><span class="chip ${matchResult(m)==='W'?'success':matchResult(m)==='D'?'warning':'danger'}">${resultLabel(matchResult(m))}</span><span class="score">${f.homeGoals} : ${f.awayGoals}</span></div></div>`;};
   function renderMatches() {
@@ -372,7 +385,7 @@
     state.data.lineups.filter(l=>l.matchId===match?.id).forEach(l=>allIds.add(l.playerId));
     const players=[...state.data.players].filter(p=>allIds.has(p.id)).map(p=>seasonPlayer(p,seasonId)).sort((a,b)=>num(a.number)-num(b.number)||name(a).localeCompare(name(b),'it'));
     const stored=new Map(state.data.lineups.filter(l=>l.matchId===match?.id).map(l=>[l.playerId,l]));
-    return `<div class="lineup-controls"><button type="button" class="btn btn-secondary btn-small" data-action="mark-all-called">✓ Convoca tutti</button><button type="button" class="btn btn-secondary btn-small" data-action="clear-all-called">× Azzera convocazioni</button><span id="lineup-summary" class="lineup-summary" aria-live="polite"></span></div><p class="form-guide">Il ruolo della partita è indipendente da quello stagionale: puoi indicare “Portiere” anche per un giocatore normalmente di movimento. Le reti subite si attribuiscono ai portieri effettivamente presenti.</p><div class="roster-form"><div class="roster-header"><span style="text-align:left">GIOCATORE</span><span>RUOLO PARTITA</span><span>CONV.</span><span>PRES.</span><span>GOL</span><span>ASSIST</span><span>🟨</span><span>🟥</span></div>${players.map(p=>{const l=stored.get(p.id)||{};const keeper=matchKeeper({...l,playerId:p.id},seasonId);const goals=goalParts(l);return `<div class="roster-entry ${one(l.called)?'is-called':''}" data-player-id="${esc(p.id)}" data-keeper="${keeper?1:0}"><span class="player-label">${jersey(kitForMatch(p,keeper),false,keeper)} ${esc(name(p))}${p.status==='INFORTUNATO'?'<small> · INFORTUNATO</small>':''}</span><select class="match-role-select" data-line="matchRole" aria-label="Ruolo in partita di ${esc(name(p))}"><option value="MOVIMENTO" ${!keeper?'selected':''}>Movimento</option><option value="PORTIERE" ${keeper?'selected':''}>🧤 Portiere</option></select><input type="checkbox" data-line="called" ${one(l.called)?'checked':''} aria-label="Convocato ${esc(name(p))}"><input type="checkbox" data-line="played" ${one(l.played)?'checked':''} aria-label="Presenza ${esc(name(p))}">${['goals','assists','yellow','red'].map(k=>`<input type="number" data-line="${k}" value="${k==='goals'?(keeper?goals.conceded:goals.scored):positiveInt(l[k])}" min="0" max="${k==='yellow'?2:k==='red'?1:99}" step="1" ${one(l.played)?'':'disabled'} aria-label="${k==='goals'&&keeper?'Gol subiti':statLabels[k]} ${esc(name(p))}">`).join('')}</div>`}).join('')}</div>${!players.length?'<p class="notice">Non ci sono giocatori tesserati in questa stagione: aggiungili dalla Rosa.</p>':''}`;
+    return `<div class="lineup-controls"><button type="button" class="btn btn-secondary btn-small" data-action="mark-all-called">✓ Convoca tutti</button><button type="button" class="btn btn-secondary btn-small" data-action="clear-all-called">× Azzera convocazioni</button><span id="lineup-summary" class="lineup-summary" aria-live="polite"></span></div><p class="form-guide">Il ruolo della partita è indipendente da quello stagionale: puoi indicare “Portiere” anche per un giocatore normalmente di movimento. Le reti subite si attribuiscono ai portieri effettivamente presenti.</p><div class="roster-form"><div class="roster-header"><span style="text-align:left">GIOCATORE</span><span>RUOLO PARTITA</span><span>CONV.</span><span>PRES.</span><span>GOL</span><span>ASSIST</span><span>🟨</span><span>🟥</span></div>${players.map(p=>{const l=stored.get(p.id)||{};const keeper=matchKeeper({...l,playerId:p.id},seasonId);const goals=goalParts(l);return `<div class="roster-entry ${one(l.called)?'is-called':''}" data-player-id="${esc(p.id)}" data-keeper="${keeper?1:0}"><span class="player-label">${jersey(kitForMatch(p,keeper,seasonId),false,keeper)} ${esc(name(p))}${p.status==='INFORTUNATO'?'<small> · INFORTUNATO</small>':''}</span><select class="match-role-select" data-line="matchRole" aria-label="Ruolo in partita di ${esc(name(p))}"><option value="MOVIMENTO" ${!keeper?'selected':''}>Movimento</option><option value="PORTIERE" ${keeper?'selected':''}>🧤 Portiere</option></select><input type="checkbox" data-line="called" ${one(l.called)?'checked':''} aria-label="Convocato ${esc(name(p))}"><input type="checkbox" data-line="played" ${one(l.played)?'checked':''} aria-label="Presenza ${esc(name(p))}">${['goals','assists','yellow','red'].map(k=>`<input type="number" data-line="${k}" value="${k==='goals'?(keeper?goals.conceded:goals.scored):positiveInt(l[k])}" min="0" max="${k==='yellow'?2:k==='red'?1:99}" step="1" ${one(l.played)?'':'disabled'} aria-label="${k==='goals'&&keeper?'Gol subiti':statLabels[k]} ${esc(name(p))}">`).join('')}</div>`}).join('')}</div>${!players.length?'<p class="notice">Non ci sono giocatori tesserati in questa stagione: aggiungili dalla Rosa.</p>':''}`;
   }
   function matchForm(matchId='') {
     if(!editor()){toast('Accedi con Google per registrare o modificare una partita.',true);return;}
@@ -922,7 +935,7 @@
       jerseyIcon.classList.toggle('shirt-keeper',nowKeeper);
       jerseyIcon.classList.toggle('shirt-outfield',!nowKeeper);
       const path=jerseyIcon.querySelector('path');if(path)path.setAttribute('fill',nowKeeper?'#ff9e38':'#61baf7');
-      const number=jerseyIcon.querySelector('.shirt-number');if(number){number.style.color=nowKeeper?'#0b1c2a':'#ffffff';const player=seasonPlayer(state.data.players.find(p=>p.id===row.dataset.playerId),document.querySelector('#match-form [name="seasonId"]')?.value||state.seasonId);if(player)number.textContent=kitForMatch(player,nowKeeper);}
+      const number=jerseyIcon.querySelector('.shirt-number');if(number){number.style.color=nowKeeper?'#0b1c2a':'#ffffff';const player=seasonPlayer(state.data.players.find(p=>p.id===row.dataset.playerId),document.querySelector('#match-form [name="seasonId"]')?.value||state.seasonId);if(player)number.textContent=kitForMatch(player,nowKeeper,document.querySelector('#match-form [name="seasonId"]')?.value||state.seasonId);}
     }
     goal.setAttribute('aria-label',`${nowKeeper?'Gol subiti':'Gol segnati'} ${label?.textContent.trim()||''}`);
     syncKeeperGoals();updateLineupSummary();
@@ -963,7 +976,7 @@
     const rows=playing.map(row=>{
       const player=state.data.players.find(p=>p.id===row.dataset.playerId);
       const n=positiveInt(row.querySelector('[data-line="goals"]').value);
-      return {id:row.dataset.playerId,name:player?name(player):'Portiere',number:(()=>{const p=seasonPlayer(player,form.querySelector('[name="seasonId"]').value);return p?kitForMatch(p,true):'';})(),n};
+      return {id:row.dataset.playerId,name:player?name(player):'Portiere',number:(()=>{const p=seasonPlayer(player,form.querySelector('[name="seasonId"]').value);return p?kitForMatch(p,true,form.querySelector('[name="seasonId"]').value):'';})(),n};
     });
     const multiple=rows.length>1;
     panel.innerHTML=`<div class="keeper-allocation-title">🧤 Ripartizione gol subiti · ${rows.length} ${rows.length===1?'portiere':'portieri'} in campo</div>

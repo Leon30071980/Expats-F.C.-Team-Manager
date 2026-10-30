@@ -222,3 +222,8 @@ button,input,select,textarea{font-family:inherit}
 .player-portrait:has(.shirt-pair-large){min-width:159px;width:159px}
 .dual-keeper-kit[hidden]{display:none!important}
 .dual-keeper-kit small{display:block;color:var(--muted);font-size:11px;line-height:1.4;margin-top:5px}
+
+/* v1.14: spazio certo per le due maglie, senza righe più alte */
+.roster-table .col-shirt{min-width:126px;width:126px}
+.roster-table .shirt-pair{min-width:100px;gap:6px}
+.roster-table tbody tr,.roster-table tbody td{height:84px}
