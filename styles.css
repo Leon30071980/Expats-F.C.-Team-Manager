@@ -175,3 +175,16 @@ button,input,select,textarea{font-family:inherit}
 .keeper-allocation-result{font-size:14px;margin-top:12px;font-weight:750;color:#8cf1c0}
 .keeper-allocation-result.allocation-error{color:#ffb56f}
 @media(max-width:720px){.keeper-allocation-grid{grid-template-columns:1fr}.keeper-allocation-player{flex-wrap:wrap}}
+
+/* v1.10 — panoramica: cinque schede KPI con solo titolo e numero */
+.dashboard-kpi{min-height:112px;padding:22px;display:flex;flex-direction:column;justify-content:center;gap:10px}
+.dashboard-kpi .stat-card-label{margin:0;padding-right:0}
+.dashboard-kpi .stat-value{margin:0}
+@media(max-width:560px){.dashboard-kpi{min-height:100px;padding:16px;gap:9px}}
+
+/* Cinque statistiche, leggibili con righe di uguale altezza anche in responsive. */
+.dashboard-stats-grid{grid-template-columns:repeat(5,minmax(0,1fr))}
+.dashboard-stats-grid .dashboard-kpi{min-width:0;min-height:124px}
+.dashboard-stats-grid .stat-card-label{line-height:1.35;overflow-wrap:break-word}
+@media(max-width:1350px){.dashboard-stats-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:640px){.dashboard-stats-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
