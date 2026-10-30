@@ -3,7 +3,7 @@
  * Questi dati sono una DEMO LOCALE: si modificano su Drive solo dopo la configurazione.
  */
 window.EXPATS_DEMO = {
-  roles: ['Portiere','Difensore','Centrale','Terzino','Esterno','Centrocampista','Mediano','Trequartista','Attaccante','Punta','Jolly'].map((name,i)=>({id:'r_'+i,name,type:i===0?'PORTIERE':'MOVIMENTO',active:true})),
+  roles: ['Portiere','Difensore','Centrale','Terzino','Esterno','Centrocampista','Mediano','Trequartista','Attaccante','Punta','Jolly'].map((name,i)=>({id:'r_'+i,name,type:i===0?'PORTIERE':'MOVIMENTO',color:['#ffc15a','#68b6ec','#488fd7','#4986c1','#30acaa','#987ceb','#8a91ca','#b77ad4','#e28c69','#e66f8c','#789cb1'][i],active:true})),
   states:[{id:'ATTIVO',name:'Attivo',color:'#35c986',active:true},{id:'INFORTUNATO',name:'Infortunato',color:'#f2b84e',active:true},{id:'RITIRATO',name:'Ritirato',color:'#8898ad',active:true}],
   seasons: [{ id: 's-import', name: '2025/26', start: '2025-07-01', end: '2026-06-30' },{id:'s-2026-27',name:'2026/27',start:'2026-07-01',end:'2027-06-30'}],
   players: [
