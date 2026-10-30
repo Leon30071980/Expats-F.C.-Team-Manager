@@ -131,3 +131,30 @@ button,input,select,textarea{font-family:inherit}
   .page-title{font-size:31px}
   .topbar select,.topbar .btn{font-size:13px}
 }
+
+
+/* v1.7 — più ruoli come badge; altezze delle righe identiche */
+/* Il contenuto dei badge resta su una sola linea, scorribile all'interno della cella. */
+.roster-table{min-width:1580px}
+.roster-table .inline-cell.role-cell{min-width:275px;width:275px;max-width:275px}
+.roster-table tbody tr{height:84px}
+.roster-table tbody td{height:84px;box-sizing:border-box;vertical-align:middle}
+.roster-table .role-pill{display:inline-flex;align-items:center;flex-shrink:0;max-width:none;overflow:visible;text-overflow:clip;margin:0}
+.roles-cell-inner{width:249px;max-width:249px;min-width:0;display:flex;align-items:center;gap:7px;height:45px}
+.role-badge-strip{flex:1;min-width:0;max-width:205px;display:flex;align-items:center;gap:6px;flex-wrap:nowrap;white-space:nowrap;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;scrollbar-color:#4a7793 transparent;padding:3px 1px 5px;overscroll-behavior-x:contain}
+.role-badge-strip::-webkit-scrollbar{height:4px}
+.role-badge-strip::-webkit-scrollbar-thumb{background:#4a7793;border-radius:6px}
+.role-editor-button{flex:0 0 34px;height:35px;border-radius:8px;border:1px solid #496d87;background:#15304b;color:#dbf2ff;cursor:pointer;font-size:19px;line-height:1;transition:background .15s}
+.role-editor-button:hover,.role-editor-button:focus-visible{background:#275474;outline:2px solid #82cfff;outline-offset:1px}
+.role-editor-button:disabled{opacity:.5;cursor:progress}
+.role-checkbox-list{display:grid;gap:6px;max-height:185px;overflow-y:auto;padding:10px;background:#102238;border:1px solid #36536a;border-radius:9px}
+.role-check-option,.role-modal-choice{display:flex;align-items:center;gap:10px;cursor:pointer;min-width:0}
+.role-check-option{padding:4px 2px}
+.role-check-option input,.role-modal-choice input{width:18px;height:18px;accent-color:#50cafa;flex:0 0 auto;cursor:pointer}
+.role-modal-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;max-height:340px;overflow-y:auto}
+.role-modal-choice{padding:11px 12px;border:1px solid #39516c;border-radius:10px;background:#142941;flex-wrap:wrap}
+.role-modal-choice:has(input:checked){border-color:#69b5ed;background:#1d3d5b}
+.role-modal-choice small{color:#b0c5d9;font-size:11px}
+.profile-role-badges{display:inline-flex;flex-wrap:wrap;gap:6px;vertical-align:middle;margin-left:5px}
+.profile-role-badges .role-pill{margin:0}
+@media(max-width:650px){.role-modal-list{grid-template-columns:1fr}}
