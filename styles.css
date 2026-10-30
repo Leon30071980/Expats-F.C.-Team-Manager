@@ -208,3 +208,17 @@ button,input,select,textarea{font-family:inherit}
 .roster-table .role-editor-button{flex:0 0 34px}
 .roster-table tbody tr,.roster-table tbody td{height:84px}
 .roster-table .metric-goals .metric-value{white-space:nowrap}
+
+
+/* v1.13 — doppia maglia compatta con altezza fissa delle righe */
+.roster-table .col-shirt{min-width:114px;width:114px;white-space:nowrap}
+.shirt-pair{display:inline-flex;align-items:center;justify-content:center;gap:3px;white-space:nowrap;vertical-align:middle;height:47px}
+.shirt-pair .shirt-wrap{width:44px;height:39px}
+.shirt-pair .shirt-number{font-size:14px}
+.roster-table tbody tr,.roster-table tbody td{height:84px}
+.shirt-pair-large{height:82px;gap:7px}
+.shirt-pair-large .shirt-wrap{width:67px;height:65px}
+.shirt-pair-large .shirt-number{font-size:21px}
+.player-portrait:has(.shirt-pair-large){min-width:159px;width:159px}
+.dual-keeper-kit[hidden]{display:none!important}
+.dual-keeper-kit small{display:block;color:var(--muted);font-size:11px;line-height:1.4;margin-top:5px}
