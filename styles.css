@@ -158,3 +158,20 @@ button,input,select,textarea{font-family:inherit}
 .profile-role-badges{display:inline-flex;flex-wrap:wrap;gap:6px;vertical-align:middle;margin-left:5px}
 .profile-role-badges .role-pill{margin:0}
 @media(max-width:650px){.role-modal-list{grid-template-columns:1fr}}
+
+
+/* v1.8 — ripartizione visibile dei gol subiti tra più portieri */
+.keeper-allocation{margin-top:16px;padding:16px;background:#102c40;border:1px solid #35667f;border-radius:13px}
+.keeper-allocation-title{font-size:17px;font-weight:850;color:#c6eeff}
+.keeper-allocation-explainer{font-size:14px;color:#aac8da;line-height:1.55;margin:7px 0 13px}
+.keeper-allocation-help{font-size:14px;color:#b5d5e7}
+.keeper-allocation-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.keeper-allocation-player{display:flex;justify-content:space-between;align-items:center;gap:12px;background:#193b52;border:1px solid #406c82;border-radius:11px;padding:11px 14px}
+.keeper-allocation-name{font-size:16px;font-weight:750;color:#fff}
+.keeper-allocation-name small{font-size:12px;color:#9cbed3}
+.keeper-allocation-field{display:flex;align-items:center;gap:9px;font-size:13px;color:#c2d9eb;white-space:nowrap}
+.keeper-allocation-field input{width:72px;min-width:72px;background:#0f2339;color:#fff;border:1px solid #6c99b2;border-radius:8px;padding:7px 9px;text-align:center;font-size:18px;font-weight:800}
+.keeper-allocation-field input:focus-visible{outline:2px solid #65ceff;outline-offset:2px}
+.keeper-allocation-result{font-size:14px;margin-top:12px;font-weight:750;color:#8cf1c0}
+.keeper-allocation-result.allocation-error{color:#ffb56f}
+@media(max-width:720px){.keeper-allocation-grid{grid-template-columns:1fr}.keeper-allocation-player{flex-wrap:wrap}}

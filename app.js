@@ -1,4 +1,4 @@
-/* EXPATS F.C. TEAM MANAGER — v1.7
+/* EXPATS F.C. TEAM MANAGER — v1.8
  * Frontend statico GitHub Pages + Google Sheets API (edit via OAuth) + GViz JSONP (pubblico).
  * Il controllo delle modifiche dipende dai permessi Google Drive sul foglio.
  */
@@ -6,7 +6,7 @@
   'use strict';
   const CFG = window.EXPATS_CONFIG;
   const SHEETS = ['Giocatori','Stagioni','Partite','Distinte','Pregresso','Tesseramenti','Ruoli','Stati'];
-  const VERSION='v1.7';
+  const VERSION='v1.8';
   const state = {
     data: structuredClone(window.EXPATS_DEMO),
     source: 'demo', view: 'dashboard', seasonId: '', rosterScope: 'season',
@@ -251,7 +251,7 @@
     `<div class="two-cards"><div class="panel"><div class="panel-heading"><h2 class="panel-title">🔐 Stato connessione</h2></div><div class="breakdown"><div><span>Versione applicazione</span><strong>${VERSION}</strong></div><div><span>Origine dati</span><strong>${state.source==='drive'?'Google Drive':'Demo locale'}</strong></div><div><span>Modalità</span><strong>${editor()?'Google OAuth attivo':'Sola consultazione'}</strong></div><div><span>Archivio</span><strong>${CFG.spreadsheetId?'Configurato':'Da configurare'}</strong></div></div><p class="notice">Le autorizzazioni di scrittura non sono affidate al sito GitHub: le controlla Google tramite i permessi del foglio.</p></div>
       <div class="panel"><div class="panel-heading"><h2 class="panel-title">📂 Dove sono salvati i dati?</h2></div><p class="form-guide">Tutte le informazioni sono conservate in un unico Google Sheets nel tuo Drive, diviso in 8 schede.</p><div class="breakdown">${SHEETS.map(s=>`<div><span>${esc(s)}</span><strong>Google Sheets</strong></div>`).join('')}</div>${CFG.spreadsheetId?`<p><a target="_blank" rel="noopener noreferrer" href="https://docs.google.com/spreadsheets/d/${encodeURIComponent(CFG.spreadsheetId)}/edit">Apri archivio Google Sheets ↗</a></p>`:''}</div></div>
     <div class="panel mt-20"><div class="panel-heading"><h2 class="panel-title">🎨 Ruoli, stati e colori</h2></div><p class="form-guide">Personalizza ruoli e stati, compreso il colore di ciascuno. Il tipo Portiere resta un attributo dei ruoli. Le scelte sono memorizzate su Google Sheets e sono valide per tutti.</p><div class="intro-buttons"><button class="btn btn-secondary only-editor" data-action="manage-roles">Gestisci ruoli e colori</button><button class="btn btn-secondary only-editor" data-action="manage-states">Gestisci stati e colori</button></div><div class="catalog-overview">${availableRoles().map(x=>roleBadge(x.name)).join(' ')}${availableStates().map(x=>statusBadge(x.id)).join(' ')}</div></div>
-    <div class="panel mt-20"><div class="panel-heading"><h2 class="panel-title">🚀 Messa online</h2></div><div class="two-cards"><div class="info-step"><h3>1. Aggiorna il database esistente</h3><p>Per passare dalla <strong>v1.6 alla v1.7</strong> non occorre aggiornare Google Sheets né Apps Script. Il database già configurato rimane invariato.</p></div><div class="info-step"><h3>2. Conserva l’accesso Google</h3><p>Se l’app è già collegata a Google, non modificare <strong>config.js</strong> né l’ID client OAuth: rimangono validi.</p></div><div class="info-step"><h3>3. Pubblica i file v1.7</h3><p>Aggiornamento v1.7: carica <strong>index.html, app.js e styles.css</strong>. Non devi eseguire nuove migrazioni del database; non sovrascrivere config.js.</p></div><div class="info-step"><h3>4. Importa risultati 2025/26</h3><p>Seleziona 2025/26 → Partite e risultati → Importa risultati CSV. Puoi modificare risultato e distinta cliccando una partita; le statistiche già nel pregresso possono essere assorbite senza duplicazioni.</p></div></div><p class="notice mt-20">Per tutte le istruzioni operative, vedere il file LEGGIMI.md incluso nel progetto.</p></div>`;
+    <div class="panel mt-20"><div class="panel-heading"><h2 class="panel-title">🚀 Messa online</h2></div><div class="two-cards"><div class="info-step"><h3>1. Aggiorna il database esistente</h3><p>Per passare dalla <strong>v1.7 alla v1.8</strong> non occorre aggiornare Google Sheets né Apps Script. Il database già configurato rimane invariato.</p></div><div class="info-step"><h3>2. Conserva l’accesso Google</h3><p>Se l’app è già collegata a Google, non modificare <strong>config.js</strong> né l’ID client OAuth: rimangono validi.</p></div><div class="info-step"><h3>3. Pubblica i file v1.8</h3><p>Aggiornamento v1.8: carica <strong>index.html, app.js e styles.css</strong>. Non devi eseguire nuove migrazioni del database; non sovrascrivere config.js.</p></div><div class="info-step"><h3>4. Importa risultati 2025/26</h3><p>Seleziona 2025/26 → Partite e risultati → Importa risultati CSV. Puoi modificare risultato e distinta cliccando una partita; le statistiche già nel pregresso possono essere assorbite senza duplicazioni.</p></div></div><p class="notice mt-20">Per tutte le istruzioni operative, vedere il file LEGGIMI.md incluso nel progetto.</p></div>`;
   }
   function render() {
     if(!state.data.seasons.some(s=>s.id===state.seasonId)) state.seasonId=defaultSeason()?.id||'';
@@ -323,7 +323,7 @@
       <div class="field"><label>Gol Expats F.C. *</label><input class="form-control" type="number" name="goalsFor" min="0" max="99" step="1" value="${m?.goalsFor??0}" required></div>
       <div class="field"><label>Gol avversario *</label><input class="form-control" type="number" name="goalsAgainst" min="0" max="99" step="1" value="${m?.goalsAgainst??0}" required></div>
       <div class="field full"><label>Note partita</label><textarea class="form-control" name="notes" rows="2" maxlength="1000">${esc(m?.notes||'')}</textarea></div>
-      <div class="field full"><label>Distinta giocatori</label><small>✓ Convocato = convocazione. ✓ Presenza = giocatore sceso in campo. Gol, assist e cartellini si abilitano dopo la presenza.</small>${lineupEditor(m,sid)}</div>
+      <div class="field full"><label>Distinta giocatori</label><small>✓ Convocato = convocazione. ✓ Presenza = giocatore sceso in campo. Gol, assist e cartellini si abilitano dopo la presenza.</small>${lineupEditor(m,sid)}<div id="keeper-allocation" class="keeper-allocation" aria-live="polite"></div></div>
       <div class="field full"><label class="history-option"><input type="checkbox" name="baselineAbsorbed" ${absorbed?'checked':''}> <span><strong>Statistiche della distinta già comprese nel pregresso</strong><small>Usalo per ricostruire partite della 2025/26 già incluse nei totali importati: sposta i valori dal pregresso alla distinta senza aumentarli. Lascialo disattivo per partite nuove: aumenteranno le statistiche automaticamente.</small></span></label></div>
       </div></form>`;
     modal(m?'Modifica partita e distinta':'Registra nuova partita',body,`<button class="btn btn-secondary" data-action="close-modal">Annulla</button><button class="btn btn-primary" data-action="save-match">${m?'Salva modifiche e distinta':'Salva partita e distinta'}</button>`,true);
@@ -420,7 +420,7 @@
     };
     const rows=[labels,...playerRows().map((p,i)=>[i+1,...fields.map(k=>k==='seasons'?seasonsPlayed(p.id):k==='role'?rolesText(p.role):p[k])])];
     const csv='\ufeff'+rows.map(row=>row.map(escapeCSV).join(';')).join('\r\n');
-    const blob=new Blob([csv],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=el('a',{href:url,download:`expats-fc-${state.seasonId}-v1.7.csv`});
+    const blob=new Blob([csv],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=el('a',{href:url,download:`expats-fc-${state.seasonId}-v1.8.csv`});
     document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),2000);toast('Classifica esportata in CSV.');
   }
   // --- Google Drive: lettura pubblica via Google Visualization JSONP ---
@@ -762,7 +762,10 @@
     const keeperRows=lineup.filter(l=>l.played&&keeperInSeason(l.playerId,v.seasonId));
     if(keeperRows.length===1)keeperRows[0].goals=-positiveInt(v.goalsAgainst);
     if(keeperRows.length>1 && keeperRows.reduce((s,l)=>s+Math.abs(l.goals),0)!==positiveInt(v.goalsAgainst)){
-      toast('Con più portieri in campo, ripartisci i gol subiti: il totale deve coincidere con il risultato avversario.',true);return;
+      const attributed=keeperRows.reduce((s,l)=>s+Math.abs(l.goals),0);
+      toast(`Gol subiti dai portieri: ${attributed} assegnati, ma gli avversari ne hanno segnati ${positiveInt(v.goalsAgainst)}. Correggi la ripartizione prima di salvare.`,true);
+      const panel=$('#keeper-allocation');panel?.scrollIntoView({behavior:'smooth',block:'center'});
+      return;
     }
     const totalGoals=lineup.reduce((t,l)=>t+Math.max(0,l.goals),0);
     if(totalGoals>positiveInt(v.goalsFor)){toast('I gol assegnati ai giocatori superano il risultato della squadra.',true);return;}
@@ -806,18 +809,66 @@
     const saved=await withBusy(()=>writeAtomic(operations));
     if(saved){state.seasonId=v.seasonId;navigate('matches');}
   }
+  // Tutti i portieri che hanno giocato in questa partita sono selezionabili
+  // individualmente. Si memorizza il negativo in Distinte.Gol, senza nuove colonne.
+  function keeperParticipants(form) {
+    return [...form.querySelectorAll('.roster-entry[data-keeper="1"]')]
+      .filter(row=>row.querySelector('[data-line="played"]').checked);
+  }
+  function keeperAllocationSummary() {
+    const form=$('#match-form');const panel=$('#keeper-allocation');
+    if(!form||!panel)return;
+    const playing=keeperParticipants(form);
+    const goals=positiveInt(form.querySelector('[name="goalsAgainst"]')?.value);
+    const assigned=playing.reduce((sum,row)=>sum+positiveInt(row.querySelector('[data-line="goals"]').value),0);
+    const result=panel.querySelector('#keeper-allocation-result');
+    if(!result)return;
+    if(playing.length===1){
+      result.textContent=`${goals} gol subiti attribuiti automaticamente all'unico portiere presente.`;
+      result.classList.remove('allocation-error');
+    } else {
+      const difference=goals-assigned;
+      result.textContent=difference===0
+        ? `Ripartizione corretta: ${assigned} su ${goals} gol subiti.`
+        : difference>0
+          ? `Assegnati ${assigned} su ${goals}: mancano ${difference} gol da attribuire.`
+          : `Assegnati ${assigned} su ${goals}: ${-difference} gol di troppo.`;
+      result.classList.toggle('allocation-error',difference!==0);
+    }
+  }
+  function renderKeeperAllocation() {
+    const form=$('#match-form');const panel=$('#keeper-allocation');
+    if(!form||!panel)return;
+    const playing=keeperParticipants(form);
+    if(!playing.length){
+      panel.innerHTML='<div class="keeper-allocation-help">🧤 Nessun portiere risulta presente. Se ne ha giocato uno, spunta la sua casella Pres.</div>';
+      return;
+    }
+    const rows=playing.map(row=>{
+      const player=state.data.players.find(p=>p.id===row.dataset.playerId);
+      const n=positiveInt(row.querySelector('[data-line="goals"]').value);
+      return {id:row.dataset.playerId,name:player?name(player):'Portiere',number:seasonPlayer(player,form.querySelector('[name="seasonId"]').value)?.number??'',n};
+    });
+    const multiple=rows.length>1;
+    panel.innerHTML=`<div class="keeper-allocation-title">🧤 Ripartizione gol subiti · ${rows.length} ${rows.length===1?'portiere':'portieri'} in campo</div>
+      <p class="keeper-allocation-explainer">${multiple?'Indica quanti gol ha subito ciascun portiere, anche se sono entrambi scesi in campo. Il totale deve essere uguale ai gol degli avversari.':'I gol subiti vengono assegnati automaticamente al portiere che ha giocato.'} Nella rosa saranno mostrati con segno negativo.</p>
+      ${multiple?`<div class="keeper-allocation-grid">${rows.map(p=>`<label class="keeper-allocation-player"><span class="keeper-allocation-name">${esc(p.name)} <small>n° ${esc(p.number)}</small></span><span class="keeper-allocation-field">Gol subiti <input type="number" data-keeper-allocation="${esc(p.id)}" min="0" max="99" step="1" value="${p.n}" inputmode="numeric" aria-label="Gol subiti da ${esc(p.name)}"></span></label>`).join('')}</div>`:''}
+      <div id="keeper-allocation-result" class="keeper-allocation-result" role="status"></div>`;
+    keeperAllocationSummary();
+  }
   function syncKeeperGoals() {
     const form=$('#match-form');if(!form)return;
     const keepers=[...form.querySelectorAll('.roster-entry[data-keeper="1"]')];
-    const playing=keepers.filter(row=>row.querySelector('[data-line="played"]').checked);
+    const playing=keeperParticipants(form);
     const goals=positiveInt(form.querySelector('[name="goalsAgainst"]')?.value);
     for(const row of keepers){
       const input=row.querySelector('[data-line="goals"]');
       if(!row.querySelector('[data-line="played"]').checked){input.value='0';input.readOnly=true;}
       else if(playing.length===1){input.value=String(goals);input.readOnly=true;}
       else {input.readOnly=false;}
-      input.title=playing.length===1?'Gol subiti assegnati automaticamente dal risultato':'Gol subiti dal portiere (da ripartire se giocano più portieri)';
+      input.title=playing.length===1?'Gol subiti assegnati automaticamente dal risultato':'Gol subiti dal portiere (ripartizione manuale)';
     }
+    renderKeeperAllocation();
   }
   function updateLineupSummary() {
     const wrap=$('#match-form');if(!wrap)return;
@@ -898,6 +949,19 @@
     else if(event.target.dataset.line){rosterToggle(event.target);}
   });
   document.addEventListener('input',event=>{
+    if(event.target.matches('#match-form [data-keeper-allocation]')){
+      const form=$('#match-form');
+      const row=[...form.querySelectorAll('.roster-entry[data-keeper="1"]')]
+        .find(r=>r.dataset.playerId===event.target.dataset.keeperAllocation);
+      if(row)row.querySelector('[data-line="goals"]').value=event.target.value;
+      keeperAllocationSummary();
+    } else if(event.target.matches('#match-form .roster-entry[data-keeper="1"] [data-line="goals"]')){
+      const row=event.target.closest('.roster-entry');
+      const inputs=[...document.querySelectorAll('#keeper-allocation [data-keeper-allocation]')];
+      const twin=inputs.find(i=>i.dataset.keeperAllocation===row?.dataset.playerId);
+      if(twin)twin.value=event.target.value;
+      keeperAllocationSummary();
+    }
     if(event.target.id==='csv-paste'){state.importPreview=null;$('#execute-import').disabled=true;$('#import-preview').replaceChildren();}
     if(event.target.name==='goalsAgainst' && event.target.closest('#match-form'))syncKeeperGoals();
     if(event.target.id==='player-search'){state.search=event.target.value;$('#players-tbody').innerHTML=playersTable();}
