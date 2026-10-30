@@ -188,3 +188,12 @@ button,input,select,textarea{font-family:inherit}
 .dashboard-stats-grid .stat-card-label{line-height:1.35;overflow-wrap:break-word}
 @media(max-width:1350px){.dashboard-stats-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:640px){.dashboard-stats-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* v1.11 — ruolo effettivo in distinta (anche portiere occasionale) */
+.roster-form .roster-header,.roster-form .roster-entry{grid-template-columns:minmax(165px,1.6fr) minmax(110px,125px) 43px 43px repeat(4,60px);min-width:765px;gap:7px}
+.match-role-select{background:#172e47;color:#e6f2ff;border:1px solid #3d5e7a;border-radius:8px;min-height:34px;padding:4px 6px;font-size:12px;font-weight:700;max-width:100%}
+.match-role-select:focus{outline:2px solid #41dba8;outline-offset:1px}
+.roster-entry[data-keeper="1"] .match-role-select{background:#50341e;border-color:#b67637;color:#ffe4be}
+.roster-entry[data-keeper="1"] [data-line="goals"]{border-color:#d3934d}
+.roster-entry .player-label{font-size:12px}
+@media(max-width:560px){.roster-form .roster-header,.roster-form .roster-entry{min-width:765px}}
