@@ -4,3 +4,43 @@
 
 /* Aggiornamento v1.1: tesseramenti e importazione risultati */
 .season-num{color:#88f0bb;font-family:'Exo 2',sans-serif;font-size:16px!important;font-weight:900!important}.membership-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:4px}.membership-option{display:flex;align-items:center;gap:8px;background:#172c42;padding:12px;border-radius:9px;border:1px solid #30526b;cursor:pointer;font-size:12px!important}.membership-option input{accent-color:#37d99b;width:17px;height:17px}.season-card-buttons{display:flex;gap:6px;flex-wrap:wrap}.csv-input{font-family:ui-monospace,Consolas,monospace;white-space:pre;min-height:190px}.import-summary{margin:12px 0;color:#84edb5;font-size:13px;font-weight:700}.import-error{color:#ffacb4;background:#482832;padding:12px;border-radius:8px;margin-top:12px}.season-card .season-bottom{gap:9px;flex-wrap:wrap}.modal .table-shell{margin-top:10px}.modal .data-table{min-width:520px}.modal .data-table td{padding:10px 12px}.roster-form input:disabled{cursor:not-allowed}@media(max-width:560px){.membership-grid{grid-template-columns:1fr}.season-card-buttons{width:100%}.modal-footer{flex-wrap:wrap}.modal-footer .btn{flex:1}}
+
+/* v1.2 — progressivo indipendente, maglia grafica e barre per ogni statistica */
+.roster-table{min-width:1040px}
+.roster-table th,.roster-table td{padding:12px 10px}
+.roster-table .col-count,.roster-table .row-index{min-width:42px;width:42px;text-align:center}
+.row-index{color:#8ba0b5;font-weight:700;font-variant-numeric:tabular-nums}
+.col-shirt{text-align:center;min-width:68px}
+.shirt-wrap{position:relative;display:inline-flex;width:43px;height:46px;align-items:center;justify-content:center;flex:0 0 auto;vertical-align:middle}
+.shirt-svg{height:100%;width:100%;filter:drop-shadow(0 3px 6px rgba(0,0,0,.35))}
+.shirt-number{position:absolute;left:50%;top:57%;transform:translate(-50%,-50%);font:900 14px 'Exo 2',sans-serif;color:#073829;text-shadow:0 1px 0 rgba(255,255,255,.35)}
+.shirt-large{width:70px;height:76px}.shirt-large .shirt-number{font-size:21px}
+.player-portrait{background:transparent;min-width:80px}
+.metric-cell{min-width:75px;text-align:center;font-variant-numeric:tabular-nums}
+.metric-value{font-weight:800;font-size:13px;line-height:1.5}
+.metric-track{width:66px;max-width:100%;height:5px;margin:7px auto 0;border-radius:10px;background:#25394f;overflow:hidden}
+.metric-track>span{height:100%;display:block;border-radius:10px;background:#3fd2e1;transition:width .2s}
+.metric-called .metric-track>span{background:#46a5fa}
+.metric-played .metric-track>span{background:#25d7a0}
+.metric-goals .metric-track>span{background:#f27d71}
+.metric-assists .metric-track>span{background:#80d5a9}
+.metric-yellow .metric-track>span{background:#f6c458}
+.metric-red .metric-track>span{background:#fa7380}
+.metric-goals .metric-value{color:#f49a91}
+.metric-assists .metric-value{color:#9debc5}
+.metric-yellow .metric-value{color:#fbd776}
+.metric-red .metric-value{color:#fa9daa}
+.roster-entry .player-label{display:flex;align-items:center;gap:5px;min-width:0}
+.roster-entry .shirt-wrap{width:31px;height:33px}
+.roster-entry .shirt-number{font-size:11px}
+.roster-entry .player-label small{white-space:nowrap}
+.roster-entry.is-called{background:#172c41}
+.roster-entry.is-played{background:#18362f}
+.lineup-controls{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin:9px 0}
+.lineup-summary{font-size:11px;color:#96e5c0;font-weight:800;margin-left:auto}
+.history-option{display:flex!important;align-items:flex-start;gap:12px;cursor:pointer;border:1px solid #31536a;background:#142b3c;border-radius:11px;padding:14px}
+.history-option input{flex:0 0 auto;width:18px;height:18px;accent-color:#32d89c}
+.history-option span{display:flex;flex-direction:column;gap:5px}
+.history-option strong{font-size:12px;color:#d9f5ee}
+.history-option small{line-height:1.55;font-size:11px}
+@media(max-width:560px){.lineup-summary{width:100%;margin-left:0}.roster-table{min-width:1050px}}

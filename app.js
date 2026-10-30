@@ -1,4 +1,4 @@
-/* EXPATS F.C. TEAM MANAGER — v1.1
+/* EXPATS F.C. TEAM MANAGER — v1.2
  * Frontend statico GitHub Pages + Google Sheets API (edit via OAuth) + GViz JSONP (pubblico).
  * Il controllo delle modifiche dipende dai permessi Google Drive sul foglio.
  */
@@ -6,7 +6,7 @@
   'use strict';
   const CFG = window.EXPATS_CONFIG;
   const SHEETS = ['Giocatori','Stagioni','Partite','Distinte','Pregresso','Tesseramenti'];
-  const VERSION='v1.1';
+  const VERSION='v1.2';
   const state = {
     data: structuredClone(window.EXPATS_DEMO),
     source: 'demo', view: 'dashboard', seasonId: '', rosterScope: 'season',
@@ -47,6 +47,12 @@
   const statusText = s => ({ATTIVO:'Attivo',INFORTUNATO:'Infortunato',RITIRATO:'Ritirato'})[s] || s;
   const statusBadge = s => `<span class="chip ${s==='ATTIVO'?'success':s==='INFORTUNATO'?'warning':'neutral'}">${esc(statusText(s))}</span>`;
   const keys = ['called','played','goals','assists','yellow','red'];
+  const statLabels={called:'Convocazioni',played:'Presenze',goals:'Gol',assists:'Assist',yellow:'Gialli',red:'Rossi'};
+  const roles=['Portiere','Difensore','Centrale','Terzino','Esterno','Centrocampista','Mediano','Trequartista','Attaccante','Punta','Jolly'];
+  const jersey = (number,large=false) => `<span class="shirt-wrap ${large?'shirt-large':''}" aria-label="Maglia numero ${esc(number)}"><svg class="shirt-svg" viewBox="0 0 64 68" aria-hidden="true"><path d="M23 5h18l6 8 14 9-9 17-8-4v29H20V35l-8 4L3 22l14-9z" fill="#2ed69c" stroke="#9af6d5" stroke-width="2.2" stroke-linejoin="round"/><path d="M24 5q8 12 16 0" stroke="#0c3f38" stroke-width="3" fill="none"/><path d="M20 37v25M44 37v25" stroke="#17af81" stroke-width="1" opacity=".6"/></svg><span class="shirt-number">${esc(number)}</span></span>`;
+  const lineupStat=(l,key)=>key==='called'||key==='played'?(one(l?.[key])?1:0):positiveInt(l?.[key]);
+  const seasonIsHistorical=(sid)=>{const s=state.data.seasons.find(s=>s.id===sid);return !!s && !!s.end && s.end < new Date().toISOString().slice(0,10);};
+
   const sheetRange = sheet => `'${sheet.replace(/'/g,"''")}'!A:Z`;
   function statsForSeason(seasonId) {
     const map = new Map(state.data.players.map(p => [p.id,{...p,called:0,played:0,goals:0,assists:0,yellow:0,red:0}]));
@@ -134,13 +140,15 @@
   }
   function playersTable() {
     const rows=playerRows();
-    if(!rows.length)return `<tr><td colspan="11">${empty('🔎','Nessun giocatore trovato')}</td></tr>`;
-    return rows.map(p=>`<tr class="clickable" data-player="${esc(p.id)}" title="Dettaglio ${esc(name(p))}"><td><span class="jersey">${esc(p.number)}</span></td><td class="col-name">${esc(name(p))}</td><td>${esc(p.role||'—')}</td><td>${statusBadge(p.status)}</td><td class="num season-num">${seasonsPlayed(p.id)}</td><td class="num">${p.called}</td><td class="num">${p.played}<span class="tiny-bar"><i style="width:${p.called?Math.min(100,100*p.played/p.called):0}%"></i></span></td><td class="num accent-green">${p.goals}</td><td class="num accent-blue">${p.assists}</td><td class="num accent-yellow">${p.yellow}</td><td class="num accent-red">${p.red}</td></tr>`).join('');
+    if(!rows.length)return `<tr><td colspan="12">${empty('🔎','Nessun giocatore trovato')}</td></tr>`;
+    const maximum=Object.fromEntries(keys.map(k=>[k,Math.max(1,...rows.map(r=>positiveInt(r[k])))]));
+    const metric=(p,k)=>`<td class="metric-cell metric-${k}"><div class="metric-value">${positiveInt(p[k])}</div><div class="metric-track"><span style="width:${Math.min(100,Math.round(100*positiveInt(p[k])/maximum[k]))}%"></span></div></td>`;
+    return rows.map((p,i)=>`<tr class="clickable" data-player="${esc(p.id)}" title="Dettaglio ${esc(name(p))}"><td class="row-index">${i+1}</td><td class="col-shirt">${jersey(p.number)}</td><td class="col-name">${esc(name(p))}</td><td>${esc(p.role||'—')}</td><td>${statusBadge(p.status)}</td><td class="num season-num">${seasonsPlayed(p.id)}</td>${keys.map(k=>metric(p,k)).join('')}</tr>`).join('');
   }
   function renderPlayers() {
-    return intro('ROSA UFFICIALE','I nostri giocatori','Tesseramenti, numero di stagioni, disponibilità e rendimento per la stagione selezionata.',`<button class="btn btn-secondary" data-action="export">↓ Esporta CSV</button><button class="btn btn-primary only-editor" data-action="new-player">＋ Nuovo giocatore</button>`)+banner()+
-      `<div class="toolbar"><select id="roster-scope" class="filter-select" aria-label="Rosa della stagione"><option value="season" ${state.rosterScope==='season'?'selected':''}>Rosa stagione</option><option value="all" ${state.rosterScope==='all'?'selected':''}>Tutti i giocatori</option></select><input id="player-search" class="search" type="search" placeholder="Cerca per nome, numero o ruolo..." value="${esc(state.search)}" aria-label="Cerca giocatore"><select id="status-filter" class="filter-select" aria-label="Filtra per stato"><option value="TUTTI" ${state.filter==='TUTTI'?'selected':''}>Tutti gli stati</option>${['ATTIVO','INFORTUNATO','RITIRATO'].map(x=>`<option value="${x}" ${state.filter===x?'selected':''}>${statusText(x)}</option>`).join('')}</select></div>
-      <div class="table-shell"><table class="data-table"><thead><tr>${[['number','#'],['firstName','Giocatore'],['role','Ruolo'],['status','Stato'],['seasons','Stagioni'],['called','Conv.'],['played','Pres.'],['goals','Gol'],['assists','Assist'],['yellow','Gialli'],['red','Rossi']].map(([k,label])=>`<th class="sortable" data-sort="${k}">${label}${state.sort.key===k?(state.sort.dir===1?' ↑':' ↓'):''}</th>`).join('')}</tr></thead><tbody id="players-tbody">${playersTable()}</tbody></table></div><p class="notice">Seleziona un giocatore per vedere il profilo e, con autorizzazione Google, aggiornarne i dati.</p>`;
+    return intro('ROSA UFFICIALE','I nostri giocatori','Numero progressivo e maglia separati, ruolo, disponibilità e statistiche per stagione.',`<button class="btn btn-secondary" data-action="export">↓ Esporta CSV</button><button class="btn btn-primary only-editor" data-action="new-player">＋ Nuovo giocatore</button>`)+banner()+
+      `<div class="toolbar"><select id="roster-scope" class="filter-select" aria-label="Rosa della stagione"><option value="season" ${state.rosterScope==='season'?'selected':''}>Rosa stagione</option><option value="all" ${state.rosterScope==='all'?'selected':''}>Tutti i giocatori</option></select><input id="player-search" class="search" type="search" placeholder="Cerca per nome, maglia o ruolo..." value="${esc(state.search)}" aria-label="Cerca giocatore"><select id="status-filter" class="filter-select" aria-label="Filtra per stato"><option value="TUTTI" ${state.filter==='TUTTI'?'selected':''}>Tutti gli stati</option>${['ATTIVO','INFORTUNATO','RITIRATO'].map(x=>`<option value="${x}" ${state.filter===x?'selected':''}>${statusText(x)}</option>`).join('')}</select></div>
+      <div class="table-shell"><table class="data-table roster-table"><thead><tr><th class="col-count" title="Numerazione progressiva delle righe visualizzate">N°</th><th class="sortable" data-sort="number" title="Numero di maglia">Maglia${state.sort.key==='number'?(state.sort.dir===1?' ↑':' ↓'):''}</th>${[['firstName','Giocatore'],['role','Ruolo'],['status','Stato'],['seasons','Stagioni'],['called','Conv.'],['played','Pres.'],['goals','Gol'],['assists','Assist'],['yellow','Gialli'],['red','Rossi']].map(([k,label])=>`<th class="sortable" data-sort="${k}">${label}${state.sort.key===k?(state.sort.dir===1?' ↑':' ↓'):''}</th>`).join('')}</tr></thead><tbody id="players-tbody">${playersTable()}</tbody></table></div><p class="notice">N° = posizione progressiva nella tabella · Maglia = numero scelto dal giocatore. Le barre confrontano i valori della stessa colonna nella rosa visualizzata.</p>`;
   }
   const matchLine = m=>`<div class="result-line clickable" data-match="${esc(m.id)}"><div><div class="opponent">Expats F.C. <span class="muted">vs</span> ${esc(m.opponent)}</div><div class="meta">${localeDate(m.date)} · ${esc(m.venue==='T'?'Trasferta':'Casa')} · ${esc(m.competition||'Campionato')}</div></div><div class="results-head"><span class="chip ${matchResult(m)==='W'?'success':matchResult(m)==='D'?'warning':'danger'}">${resultLabel(matchResult(m))}</span><span class="score">${m.goalsFor} : ${m.goalsAgainst}</span></div></div>`;
   function renderMatches() {
@@ -163,7 +171,7 @@
     return intro('CONNESSIONE E DATI','Configurazione','Gestione del collegamento con il foglio Google e stato del progetto.')+banner()+
     `<div class="two-cards"><div class="panel"><div class="panel-heading"><h2 class="panel-title">🔐 Stato connessione</h2></div><div class="breakdown"><div><span>Versione applicazione</span><strong>${VERSION}</strong></div><div><span>Origine dati</span><strong>${state.source==='drive'?'Google Drive':'Demo locale'}</strong></div><div><span>Modalità</span><strong>${editor()?'Google OAuth attivo':'Sola consultazione'}</strong></div><div><span>Archivio</span><strong>${CFG.spreadsheetId?'Configurato':'Da configurare'}</strong></div></div><p class="notice">Le autorizzazioni di scrittura non sono affidate al sito GitHub: le controlla Google tramite i permessi del foglio.</p></div>
       <div class="panel"><div class="panel-heading"><h2 class="panel-title">📂 Dove sono salvati i dati?</h2></div><p class="form-guide">Tutte le informazioni sono conservate in un unico Google Sheets nel tuo Drive, diviso in 6 schede.</p><div class="breakdown">${SHEETS.map(s=>`<div><span>${esc(s)}</span><strong>Google Sheets</strong></div>`).join('')}</div>${CFG.spreadsheetId?`<p><a target="_blank" rel="noopener noreferrer" href="https://docs.google.com/spreadsheets/d/${encodeURIComponent(CFG.spreadsheetId)}/edit">Apri archivio Google Sheets ↗</a></p>`:''}</div></div>
-    <div class="panel mt-20"><div class="panel-heading"><h2 class="panel-title">🚀 Messa online</h2></div><div class="two-cards"><div class="info-step"><h3>1. Aggiorna il database esistente</h3><p>Nel Google Sheet già collegato: Estensioni → Apps Script. Sostituisci il vecchio script con <strong>setup.gs</strong> e avvia <strong>aggiornaDatabaseV11()</strong> una sola volta. Crea la scheda Tesseramenti e le stagioni senza cancellare dati.</p></div><div class="info-step"><h3>2. Conserva l’accesso Google</h3><p>Se l’app v1.0 già funziona, non modificare <strong>config.js</strong> né l’ID client OAuth: rimangono validi.</p></div><div class="info-step"><h3>3. Pubblica i file v1.1</h3><p>Carica sullo stesso repository GitHub <strong>index.html, app.js, demo.js, styles.css</strong>. Non sovrascrivere config.js.</p></div><div class="info-step"><h3>4. Importa risultati 2025/26</h3><p>Seleziona 2025/26 → Partite e risultati → Importa risultati CSV. Puoi modificare il punteggio cliccando una partita, senza duplicare i totali del pregresso.</p></div></div><p class="notice mt-20">Per tutte le istruzioni operative, vedere il file LEGGIMI.md incluso nel progetto.</p></div>`;
+    <div class="panel mt-20"><div class="panel-heading"><h2 class="panel-title">🚀 Messa online</h2></div><div class="two-cards"><div class="info-step"><h3>1. Aggiorna il database esistente</h3><p>Nel Google Sheet già collegato: Estensioni → Apps Script. Sostituisci il vecchio script con <strong>setup.gs</strong> e avvia <strong>aggiornaDatabaseV12()</strong>. Aggiunge il campo tecnico PregressoAssorbito senza cancellare dati.</p></div><div class="info-step"><h3>2. Conserva l’accesso Google</h3><p>Se l’app v1.0 già funziona, non modificare <strong>config.js</strong> né l’ID client OAuth: rimangono validi.</p></div><div class="info-step"><h3>3. Pubblica i file v1.2</h3><p>Carica sullo stesso repository GitHub <strong>index.html, app.js, demo.js, styles.css</strong>. Non sovrascrivere config.js.</p></div><div class="info-step"><h3>4. Importa risultati 2025/26</h3><p>Seleziona 2025/26 → Partite e risultati → Importa risultati CSV. Puoi modificare risultato e distinta cliccando una partita; le statistiche già nel pregresso possono essere assorbite senza duplicazioni.</p></div></div><p class="notice mt-20">Per tutte le istruzioni operative, vedere il file LEGGIMI.md incluso nel progetto.</p></div>`;
   }
   function render() {
     if(!state.data.seasons.some(s=>s.id===state.seasonId)) state.seasonId=defaultSeason()?.id||'';
@@ -181,15 +189,24 @@
   function profile(playerId) {
     const p=statsForSeason(state.seasonId).find(p=>p.id===playerId); if(!p)return;
     const played=state.data.lineups.filter(l=>l.playerId===p.id && state.data.matches.some(m=>m.id===l.matchId&&m.seasonId===state.seasonId));
-    const body=`<div class="profile-hero"><div class="player-portrait">${esc(p.number)}</div><div><div class="eyebrow">SCHEDA GIOCATORE</div><h3 class="profile-title">${esc(name(p))}</h3>${statusBadge(p.status)} <span class="chip">${esc(p.role||'Ruolo da definire')}</span></div></div><div class="profile-stats">${[['Convocazioni',p.called],['Presenze',p.played],['Gol',p.goals],['Assist',p.assists],['Gialli',p.yellow],['Rossi',p.red],['Stagioni',seasonsPlayed(p.id)]].map(([label,n])=>`<div><strong>${n}</strong><small>${label}</small></div>`).join('')}</div>${p.notes?`<p class="form-guide">${esc(p.notes)}</p>`:''}<hr class="soft-rule"><h3 class="panel-title">Statistiche registrate per partita</h3>${played.length?played.map(l=>{const m=state.data.matches.find(m=>m.id===l.matchId);return `<div class="result-line"><span>${esc(m?.opponent)} · ${localeDate(m?.date)}</span><span>⚽ ${positiveInt(l.goals)} · 🎯 ${positiveInt(l.assists)}</span></div>`}).join(''):'<p class="form-guide">Le statistiche pregresse sono aggregate; non è disponibile il dettaglio delle vecchie partite.</p>'}`;
+    const body=`<div class="profile-hero"><div class="player-portrait">${jersey(p.number,true)}</div><div><div class="eyebrow">SCHEDA GIOCATORE</div><h3 class="profile-title">${esc(name(p))}</h3>${statusBadge(p.status)} <span class="chip">${esc(p.role||'Ruolo da definire')}</span></div></div><div class="profile-stats">${[['Convocazioni',p.called],['Presenze',p.played],['Gol',p.goals],['Assist',p.assists],['Gialli',p.yellow],['Rossi',p.red],['Stagioni',seasonsPlayed(p.id)]].map(([label,n])=>`<div><strong>${n}</strong><small>${label}</small></div>`).join('')}</div>${p.notes?`<p class="form-guide">${esc(p.notes)}</p>`:''}<hr class="soft-rule"><h3 class="panel-title">Statistiche registrate per partita</h3>${played.length?played.map(l=>{const m=state.data.matches.find(m=>m.id===l.matchId);return `<div class="result-line"><span>${esc(m?.opponent)} · ${localeDate(m?.date)}</span><span>⚽ ${positiveInt(l.goals)} · 🎯 ${positiveInt(l.assists)}</span></div>`}).join(''):'<p class="form-guide">Le statistiche pregresse sono aggregate; non è disponibile il dettaglio delle vecchie partite.</p>'}`;
     modal(name(p),body,`<button class="btn btn-secondary" data-action="close-modal">Chiudi</button><button class="btn btn-secondary only-editor" data-action="edit-baseline" data-id="${esc(p.id)}">Correggi pregresso</button><button class="btn btn-primary only-editor" data-action="edit-player" data-id="${esc(p.id)}">Modifica giocatore</button>`);
   }
   function playerForm(playerId='') {
     if(!editor()) {toast('Accedi con Google per modificare i dati.',true);return;}
     const p=state.data.players.find(p=>p.id===playerId);
-    const f=(key,label,type='text',required=false,values='')=>`<div class="field"><label for="p-${key}">${label}</label>${values?`<select class="form-control" name="${key}" id="p-${key}">${values.split('|').map(x=>`<option value="${esc(x)}" ${p?.[key]===x?'selected':''}>${esc(statusText(x))}</option>`).join('')}</select>`:`<input class="form-control" name="${key}" id="p-${key}" type="${type}" value="${esc(p?.[key]??'')}" ${required?'required':''} ${type==='number'?'min="0" max="999" step="1"':''}>`}</div>`;
-    const body=`<form id="player-form"><div class="field-grid">${f('number','Numero maglia','number',true)}${f('role','Ruolo')}${f('firstName','Nome','text',true)}${f('lastName','Cognome','text',true)}${f('status','Stato','text',false,'ATTIVO|INFORTUNATO|RITIRATO')}<div class="field full"><label>Stagioni in rosa</label><small>Seleziona le stagioni alle quali il giocatore appartiene. I dati storici già presenti non vengono cancellati.</small><div class="membership-grid">${state.data.seasons.map(s=>`<label class="membership-option"><input type="checkbox" name="membership" value="${esc(s.id)}" ${p?(isMember(p.id,s.id)?'checked':''):(s.id===state.seasonId?'checked':'')}> ${esc(s.name)}</label>`).join('')}</div></div><div class="field full"><label for="p-notes">Note</label><textarea class="form-control" id="p-notes" name="notes" rows="3">${esc(p?.notes||'')}</textarea></div></div></form>`;
-    modal(p?'Modifica giocatore':'Aggiungi giocatore',body,`<button class="btn btn-secondary" data-action="close-modal">Annulla</button><button class="btn btn-primary" data-action="save-player" data-id="${esc(p?.id||'')}">Salva su Drive</button>`);
+    const options=(values,current,labels={})=>values.map(v=>`<option value="${esc(v)}" ${v===current?'selected':''}>${esc(labels[v]||v)}</option>`).join('');
+    const selectedNumber=p?.number??0;
+    const shirtNumbers=Array.from({length:100},(_,i)=>i);
+    const form=`<form id="player-form"><div class="field-grid">
+      <div class="field"><label for="p-number">Numero di maglia *</label><select class="form-control" name="number" id="p-number" required>${shirtNumbers.map(n=>`<option value="${n}" ${n===selectedNumber?'selected':''}>${n===0?'0 · senza numero':n}</option>`).join('')}</select><small>Il numero progressivo N° nella rosa è automatico e indipendente.</small></div>
+      <div class="field"><label for="p-role">Ruolo</label><select class="form-control" name="role" id="p-role"><option value="">Seleziona ruolo</option>${options([...new Set([...roles,...(p?.role&&!roles.includes(p.role)?[p.role]:[])])],p?.role||'')}</select></div>
+      <div class="field"><label for="p-firstName">Nome *</label><input class="form-control" name="firstName" id="p-firstName" value="${esc(p?.firstName||'')}" required maxlength="70"></div>
+      <div class="field"><label for="p-lastName">Cognome *</label><input class="form-control" name="lastName" id="p-lastName" value="${esc(p?.lastName||'')}" required maxlength="70"></div>
+      <div class="field full"><label for="p-status">Stato</label><select class="form-control" name="status" id="p-status">${options(['ATTIVO','INFORTUNATO','RITIRATO'],p?.status||'ATTIVO',{ATTIVO:'Attivo',INFORTUNATO:'Infortunato',RITIRATO:'Ritirato'})}</select></div>
+      <div class="field full"><label>Stagioni in rosa</label><small>Seleziona le stagioni alle quali il giocatore appartiene. I dati storici non vengono cancellati.</small><div class="membership-grid">${state.data.seasons.map(s=>`<label class="membership-option"><input type="checkbox" name="membership" value="${esc(s.id)}" ${p?(isMember(p.id,s.id)?'checked':''):(s.id===state.seasonId?'checked':'')}> ${esc(s.name)}</label>`).join('')}</div></div>
+      <div class="field full"><label for="p-notes">Note</label><textarea class="form-control" id="p-notes" name="notes" rows="3">${esc(p?.notes||'')}</textarea></div></div></form>`;
+    modal(p?'Modifica giocatore':'Aggiungi giocatore',form,`<button class="btn btn-secondary" data-action="close-modal">Annulla</button><button class="btn btn-primary" data-action="save-player" data-id="${esc(p?.id||'')}">Salva su Drive</button>`);
   }
   function seasonForm(seasonId='') {
     if(!editor()){toast('Accedi con Google per gestire le stagioni.',true);return;}
@@ -197,25 +214,41 @@
     const body=`<form id="season-form"><div class="field-grid"><div class="field full"><label>Nome stagione *</label><input class="form-control" name="name" required placeholder="Es. 2026/27" maxlength="70" value="${esc(current?.name||'')}"></div><div class="field"><label>Data inizio</label><input class="form-control" type="date" name="start" value="${esc(current?.start||'')}"></div><div class="field"><label>Data fine</label><input class="form-control" type="date" name="end" value="${esc(current?.end||'')}"></div></div></form>`;
     modal(current?'Modifica stagione':'Nuova stagione',body,`<button class="btn btn-secondary" data-action="close-modal">Annulla</button><button class="btn btn-primary" data-action="save-season" data-id="${esc(current?.id||'')}">${current?'Salva modifiche':'Crea stagione'}</button>`);
   }
-  function matchForm() {
-    if(!editor()){toast('Accedi con Google per registrare una partita.',true);return;}
-    const players=[...state.data.players].filter(p=>isMember(p.id,state.seasonId)).sort((a,b)=>num(a.number)-num(b.number));
-    const roster=`<div class="roster-form"><div class="roster-header"><span style="text-align:left">GIOCATORE</span><span>CONV.</span><span>PRES.</span><span>GOL</span><span>ASSIST</span><span>🟨</span><span>🟥</span></div>${players.map(p=>`<div class="roster-entry" data-player-id="${esc(p.id)}"><span class="player-label">#${esc(p.number)} ${esc(name(p))}${p.status==='INFORTUNATO'?'<small> · INFORTUNATO</small>':''}</span><input type="checkbox" data-line="called" aria-label="Convocato ${esc(name(p))}"><input type="checkbox" data-line="played" aria-label="Presenza ${esc(name(p))}">${['goals','assists','yellow','red'].map(k=>`<input type="number" data-line="${k}" value="0" min="0" max="99" step="1" disabled aria-label="${k} ${esc(name(p))}">`).join('')}</div>`).join('')}</div>`;
-    const body=`<form id="match-form"><div class="field-grid"><div class="field"><label>Data partita *</label><input class="form-control" type="date" name="date" required value="${new Date().getFullYear()+'-'+String(new Date().getMonth()+1).padStart(2,'0')+'-'+String(new Date().getDate()).padStart(2,'0')}"></div><div class="field"><label>Stagione *</label><input type="hidden" name="seasonId" value="${esc(state.seasonId)}"><input class="form-control" readonly value="${esc(activeSeason().name)}"></div><div class="field full"><label>Avversario *</label><input class="form-control" name="opponent" required maxlength="120" placeholder="Nome squadra avversaria"></div><div class="field"><label>Campo</label><select class="form-control" name="venue"><option value="C">Casa</option><option value="T">Trasferta</option></select></div><div class="field"><label>Competizione</label><input class="form-control" name="competition" placeholder="Campionato" maxlength="100"></div><div class="field"><label>Gol Expats F.C. *</label><input class="form-control" type="number" name="goalsFor" min="0" max="99" step="1" value="0" required></div><div class="field"><label>Gol avversario *</label><input class="form-control" type="number" name="goalsAgainst" min="0" max="99" step="1" value="0" required></div><div class="field full"><label>Note partita</label><textarea class="form-control" name="notes" rows="2" maxlength="1000"></textarea></div><div class="field full"><label>Distinta giocatori</label><small>Conv. = convocato; Pres. = entrato in campo. Spunta Pres. per abilitare gol, assist e cartellini. Le presenze sono comprese nelle convocazioni.</small>${roster}</div></div></form>`;
-    modal('Registra nuova partita',body,`<button class="btn btn-secondary" data-action="close-modal">Annulla</button><button class="btn btn-primary" data-action="save-match">Salva partita e distinta</button>`,true);
+  function lineupEditor(match,seasonId) {
+    const allIds=new Set(state.data.players.filter(p=>isMember(p.id,seasonId)).map(p=>p.id));
+    state.data.lineups.filter(l=>l.matchId===match?.id).forEach(l=>allIds.add(l.playerId));
+    const players=[...state.data.players].filter(p=>allIds.has(p.id)).sort((a,b)=>num(a.number)-num(b.number)||name(a).localeCompare(name(b),'it'));
+    const stored=new Map(state.data.lineups.filter(l=>l.matchId===match?.id).map(l=>[l.playerId,l]));
+    return `<div class="lineup-controls"><button type="button" class="btn btn-secondary btn-small" data-action="mark-all-called">✓ Convoca tutti</button><button type="button" class="btn btn-secondary btn-small" data-action="clear-all-called">× Azzera convocazioni</button><span id="lineup-summary" class="lineup-summary" aria-live="polite"></span></div><div class="roster-form"><div class="roster-header"><span style="text-align:left">GIOCATORE</span><span>CONV.</span><span>PRES.</span><span>GOL</span><span>ASSIST</span><span>🟨</span><span>🟥</span></div>${players.map(p=>{const l=stored.get(p.id)||{};return `<div class="roster-entry ${one(l.called)?'is-called':''}" data-player-id="${esc(p.id)}"><span class="player-label">${jersey(p.number)} ${esc(name(p))}${p.status==='INFORTUNATO'?'<small> · INFORTUNATO</small>':''}</span><input type="checkbox" data-line="called" ${one(l.called)?'checked':''} aria-label="Convocato ${esc(name(p))}"><input type="checkbox" data-line="played" ${one(l.played)?'checked':''} aria-label="Presenza ${esc(name(p))}">${['goals','assists','yellow','red'].map(k=>`<input type="number" data-line="${k}" value="${positiveInt(l[k])}" min="0" max="${k==='yellow'?2:k==='red'?1:99}" step="1" ${one(l.played)?'':'disabled'} aria-label="${statLabels[k]} ${esc(name(p))}">`).join('')}</div>`}).join('')}</div>${!players.length?'<p class="notice">Non ci sono giocatori tesserati in questa stagione: aggiungili dalla Rosa.</p>':''}`;
+  }
+  function matchForm(matchId='') {
+    if(!editor()){toast('Accedi con Google per registrare o modificare una partita.',true);return;}
+    const m=state.data.matches.find(x=>x.id===matchId);
+    const sid=m?.seasonId||state.seasonId;
+    const season=state.data.seasons.find(s=>s.id===sid)||activeSeason();
+    const isHistorical=seasonIsHistorical(sid)&&state.data.baseline.some(b=>b.seasonId===sid && keys.some(k=>b[k]>0));
+    // Le distinte delle partite storiche possono rappresentare statistiche già importate nel Pregresso.
+    const absorbed=m?(state.data.lineups.some(l=>l.matchId===m.id)?m.baselineAbsorbed:isHistorical):isHistorical;
+    const body=`<form id="match-form" data-edit-id="${esc(matchId)}"><div class="field-grid"><div class="field"><label>Data partita *</label><input class="form-control" type="date" name="date" required value="${esc(m?.date||[new Date().getFullYear(),String(new Date().getMonth()+1).padStart(2,'0'),String(new Date().getDate()).padStart(2,'0')].join('-'))}"></div><div class="field"><label>Stagione *</label><input type="hidden" name="seasonId" value="${esc(sid)}"><input class="form-control" readonly value="${esc(season.name)}"></div>
+      <div class="field full"><label>Avversario *</label><input class="form-control" name="opponent" required maxlength="120" placeholder="Nome squadra avversaria" value="${esc(m?.opponent||'')}"></div>
+      <div class="field"><label>Campo</label><select class="form-control" name="venue"><option value="C" ${m?.venue!=='T'?'selected':''}>Casa</option><option value="T" ${m?.venue==='T'?'selected':''}>Trasferta</option></select></div>
+      <div class="field"><label>Competizione</label><input class="form-control" name="competition" placeholder="Campionato" maxlength="100" value="${esc(m?.competition||'')}"></div>
+      <div class="field"><label>Gol Expats F.C. *</label><input class="form-control" type="number" name="goalsFor" min="0" max="99" step="1" value="${m?.goalsFor??0}" required></div>
+      <div class="field"><label>Gol avversario *</label><input class="form-control" type="number" name="goalsAgainst" min="0" max="99" step="1" value="${m?.goalsAgainst??0}" required></div>
+      <div class="field full"><label>Note partita</label><textarea class="form-control" name="notes" rows="2" maxlength="1000">${esc(m?.notes||'')}</textarea></div>
+      <div class="field full"><label>Distinta giocatori</label><small>✓ Convocato = convocazione. ✓ Presenza = giocatore sceso in campo. Gol, assist e cartellini si abilitano dopo la presenza.</small>${lineupEditor(m,sid)}</div>
+      <div class="field full"><label class="history-option"><input type="checkbox" name="baselineAbsorbed" ${absorbed?'checked':''}> <span><strong>Statistiche della distinta già comprese nel pregresso</strong><small>Usalo per ricostruire partite della 2025/26 già incluse nei totali importati: sposta i valori dal pregresso alla distinta senza aumentarli. Lascialo disattivo per partite nuove: aumenteranno le statistiche automaticamente.</small></span></label></div>
+      </div></form>`;
+    modal(m?'Modifica partita e distinta':'Registra nuova partita',body,`<button class="btn btn-secondary" data-action="close-modal">Annulla</button><button class="btn btn-primary" data-action="save-match">${m?'Salva modifiche e distinta':'Salva partita e distinta'}</button>`,true);
+    updateLineupSummary();
   }
   function matchDetail(id) {
     const m=state.data.matches.find(m=>m.id===id);if(!m)return;
     const lines=state.data.lineups.filter(l=>l.matchId===id).sort((a,b)=>num(state.data.players.find(p=>p.id===a.playerId)?.number)-num(state.data.players.find(p=>p.id===b.playerId)?.number));
-    const body=`<div class="eyebrow">${localeDate(m.date)} · ${esc(m.competition||'Partita')}</div><h3 class="page-title" style="font-size:27px">Expats F.C. <span class="accent-green">${m.goalsFor} — ${m.goalsAgainst}</span> ${esc(m.opponent)}</h3><p class="page-subtitle">${m.venue==='T'?'Trasferta':'Casa'} · ${resultLabel(matchResult(m))}</p>${m.notes?`<p class="modal-explainer">${esc(m.notes)}</p>`:''}<hr class="soft-rule"><h3 class="panel-title">Distinta e statistiche</h3><div class="table-shell mt-20"><table class="data-table" style="min-width:560px"><thead><tr><th>Giocatore</th><th>Conv.</th><th>Pres.</th><th>Gol</th><th>Assist</th><th>Gialli</th><th>Rossi</th></tr></thead><tbody>${lines.map(l=>{const p=state.data.players.find(p=>p.id===l.playerId);return `<tr><td>${esc(p?name(p):'Giocatore non trovato')}</td><td>${one(l.called)?'✓':'—'}</td><td>${one(l.played)?'✓':'—'}</td><td>${positiveInt(l.goals)}</td><td>${positiveInt(l.assists)}</td><td>${positiveInt(l.yellow)}</td><td>${positiveInt(l.red)}</td></tr>`}).join('')}</tbody></table></div>${!lines.length?'<p class="form-guide">Nessuna distinta presente per questa partita.</p>':''}`;
-    modal(`Partita contro ${m.opponent}`,body,`<button class="btn btn-secondary" data-action="close-modal">Chiudi</button><button class="btn btn-primary only-editor" data-action="edit-match" data-id="${esc(m.id)}">Modifica risultato</button>`,true);
+    const body=`<div class="eyebrow">${localeDate(m.date)} · ${esc(m.competition||'Partita')}</div><h3 class="page-title" style="font-size:27px">Expats F.C. <span class="accent-green">${m.goalsFor} — ${m.goalsAgainst}</span> ${esc(m.opponent)}</h3><p class="page-subtitle">${m.venue==='T'?'Trasferta':'Casa'} · ${resultLabel(matchResult(m))}</p>${m.notes?`<p class="modal-explainer">${esc(m.notes)}</p>`:''}<hr class="soft-rule"><h3 class="panel-title">Distinta e statistiche</h3><div class="table-shell mt-20"><table class="data-table" style="min-width:560px"><thead><tr><th>Giocatore</th><th>Conv.</th><th>Pres.</th><th>Gol</th><th>Assist</th><th>Gialli</th><th>Rossi</th></tr></thead><tbody>${lines.map(l=>{const p=state.data.players.find(p=>p.id===l.playerId);return `<tr><td>${esc(p?name(p):'Giocatore non trovato')}</td><td>${one(l.called)?'✓':'—'}</td><td>${one(l.played)?'✓':'—'}</td><td>${positiveInt(l.goals)}</td><td>${positiveInt(l.assists)}</td><td>${positiveInt(l.yellow)}</td><td>${positiveInt(l.red)}</td></tr>`}).join('')}</tbody></table></div>${!lines.length?'<p class="form-guide">Nessuna distinta presente per questa partita. Puoi aggiungerla con Modifica partita e distinta.</p>':''}`;
+    modal(`Partita contro ${m.opponent}`,body,`<button class="btn btn-secondary" data-action="close-modal">Chiudi</button><button class="btn btn-primary only-editor" data-action="edit-match" data-id="${esc(m.id)}">Modifica partita e distinta</button>`,true);
   }
-  function editMatchForm(matchId) {
-    if(!editor())return;
-    const m=state.data.matches.find(x=>x.id===matchId);if(!m)return;
-    const body=`<form id="edit-match-form"><p class="modal-explainer">Modifica risultato e dettagli della partita. Le statistiche individuali già salvate non vengono alterate.</p><div class="field-grid"><div class="field"><label>Data partita *</label><input class="form-control" type="date" name="date" value="${esc(m.date)}" required></div><div class="field"><label>Stagione</label><input class="form-control" readonly value="${esc(state.data.seasons.find(s=>s.id===m.seasonId)?.name||m.seasonId)}"></div><div class="field full"><label>Avversario *</label><input class="form-control" name="opponent" value="${esc(m.opponent)}" required maxlength="120"></div><div class="field"><label>Campo</label><select class="form-control" name="venue"><option value="C" ${m.venue==='C'?'selected':''}>Casa</option><option value="T" ${m.venue==='T'?'selected':''}>Trasferta</option></select></div><div class="field"><label>Competizione</label><input class="form-control" name="competition" value="${esc(m.competition)}" maxlength="100"></div><div class="field"><label>Gol Expats F.C.</label><input class="form-control" type="number" name="goalsFor" min="0" max="99" value="${m.goalsFor}" required></div><div class="field"><label>Gol avversario</label><input class="form-control" type="number" name="goalsAgainst" min="0" max="99" value="${m.goalsAgainst}" required></div><div class="field full"><label>Note</label><textarea class="form-control" name="notes" rows="3">${esc(m.notes)}</textarea></div></div></form>`;
-    modal('Modifica partita',body,`<button class="btn btn-secondary" data-action="close-modal">Annulla</button><button class="btn btn-primary" data-action="save-edited-match" data-id="${esc(m.id)}">Salva risultato</button>`);
-  }
+  function editMatchForm(matchId) { matchForm(matchId); }
   function baselineForm(playerId) {
     if(!editor())return;
     const p=state.data.players.find(x=>x.id===playerId);if(!p)return;
@@ -290,16 +323,16 @@
   }
   function exportCSV() {
     const fields=['number','firstName','lastName','status','role','seasons','called','played','goals','assists','yellow','red'];
-    const labels=['Maglia','Nome','Cognome','Stato','Ruolo','Stagioni','Convocazioni','Presenze','Gol','Assist','Gialli','Rossi'];
+    const labels=['N° progressivo','Maglia','Nome','Cognome','Stato','Ruolo','Stagioni','Convocazioni','Presenze','Gol','Assist','Gialli','Rossi'];
     const escapeCSV = (v) => {
       let s=String(v ?? '');
       // Evita l'iniezione di formule nei programmi di calcolo.
       if (/^[\s]*[=+@\-\t\r]/.test(s) && isNaN(Number(s))) s="'"+s;
       return '"'+s.replace(/"/g,'""')+'"';
     };
-    const rows=[labels,...statsForSeason(state.seasonId).map(p=>fields.map(k=>k==='seasons'?seasonsPlayed(p.id):p[k]))];
+    const rows=[labels,...playerRows().map((p,i)=>[i+1,...fields.map(k=>k==='seasons'?seasonsPlayed(p.id):p[k])])];
     const csv='\ufeff'+rows.map(row=>row.map(escapeCSV).join(';')).join('\r\n');
-    const blob=new Blob([csv],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=el('a',{href:url,download:`expats-fc-${state.seasonId}-v1.1.csv`});
+    const blob=new Blob([csv],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=el('a',{href:url,download:`expats-fc-${state.seasonId}-v1.2.csv`});
     document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),2000);toast('Classifica esportata in CSV.');
   }
   // --- Google Drive: lettura pubblica via Google Visualization JSONP ---
@@ -349,7 +382,7 @@
     const players=(p||[]).map((r,i)=>({id:str(r[0]),number:num(r[1]),firstName:str(r[2]),lastName:str(r[3]),status:str(r[4])||'ATTIVO',role:str(r[5]),notes:str(r[6]),_row:i+2})).filter(x=>x.id);
     const seasons=(s||[]).map((r,i)=>({id:str(r[0]),name:str(r[1]),start:padDate(r[2]),end:padDate(r[3]),_row:i+2})).filter(x=>x.id);
     if(!seasons.length)throw new Error('Il foglio Stagioni è vuoto. Esegui inizializzaDatabase() e importa almeno una stagione.');
-    const matches=(m||[]).map((r,i)=>({id:str(r[0]),seasonId:str(r[1]),date:padDate(r[2]),opponent:str(r[3]),venue:str(r[4]),goalsFor:positiveInt(r[5]),goalsAgainst:positiveInt(r[6]),competition:str(r[7]),notes:str(r[8]),_row:i+2})).filter(x=>x.id);
+    const matches=(m||[]).map((r,i)=>({id:str(r[0]),seasonId:str(r[1]),date:padDate(r[2]),opponent:str(r[3]),venue:str(r[4]),goalsFor:positiveInt(r[5]),goalsAgainst:positiveInt(r[6]),competition:str(r[7]),notes:str(r[8]),baselineAbsorbed:one(r[9]),_row:i+2})).filter(x=>x.id);
     const lineups=(l||[]).map((r,i)=>({id:str(r[0]),matchId:str(r[1]),playerId:str(r[2]),called:one(r[3]),played:one(r[4]),goals:positiveInt(r[5]),assists:positiveInt(r[6]),yellow:positiveInt(r[7]),red:positiveInt(r[8]),_row:i+2})).filter(x=>x.id);
     const baseline=(b||[]).map((r,i)=>({seasonId:str(r[0]),playerId:str(r[1]),called:positiveInt(r[2]),played:positiveInt(r[3]),goals:positiveInt(r[4]),assists:positiveInt(r[5]),yellow:positiveInt(r[6]),red:positiveInt(r[7]),_row:i+2})).filter(x=>x.playerId);
     const memberships=(t||[]).map((r,i)=>({seasonId:str(r[0]),playerId:str(r[1]),inRoster:one(r[2]),_row:i+2})).filter(x=>x.playerId);
@@ -427,8 +460,8 @@
     const number=positiveInt(v.number);
     if(number>999){toast('Numero maglia non valido.',true);return;}
     if(!v.firstName.trim()||!v.lastName.trim()){toast('Nome e cognome obbligatori.',true);return;}
-    const duplicate=state.data.players.find(p=>p.id!==playerId&&p.number===number&&p.status!=='RITIRATO'&&v.status!=='RITIRATO');
-    if(duplicate){toast(`Maglia già assegnata a ${name(duplicate)}.`,true);return;}
+    const duplicate=number===0?null:state.data.players.find(p=>p.id!==playerId&&p.number===number && state.data.seasons.some(season=>selected.has(season.id)&&isMember(p.id,season.id)));
+    if(duplicate){toast(`Maglia già assegnata a ${name(duplicate)} in una delle stagioni selezionate.`,true);return;}
     const id=playerId||uid('p');
     const player=state.data.players.find(p=>p.id===playerId);
     const vals=[id,number,v.firstName.trim(),v.lastName.trim(),v.status,v.role.trim(),(v.notes||'').trim()];
@@ -455,20 +488,6 @@
     const saved=await withBusy(()=>writeAtomic([{sheet:'Stagioni',...(current?{row:current._row}:{}),rows:[[id,label,v.start,v.end]]}]));
     if(saved){state.seasonId=id;render();}
   }
-  async function saveEditedMatch(matchId) {
-    if(!editor())return;
-    const f=$('#edit-match-form');if(!f.reportValidity())return;
-    const m=state.data.matches.find(x=>x.id===matchId);if(!m)return;
-    const v=Object.fromEntries(new FormData(f).entries());
-    const goalsFor=positiveInt(v.goalsFor),goalsAgainst=positiveInt(v.goalsAgainst);
-    if(goalsFor>99||goalsAgainst>99){toast('Punteggio non valido.',true);return;}
-    const assigned=state.data.lineups.filter(l=>l.matchId===m.id).reduce((sum,l)=>sum+l.goals,0);
-    if(assigned>goalsFor){toast('Il risultato non può essere inferiore ai gol già assegnati ai giocatori ('+assigned+').',true);return;}
-    const other=state.data.matches.find(x=>x.id!==m.id && matchIdentity(x.seasonId,x)===matchIdentity(m.seasonId,{date:v.date,opponent:v.opponent,venue:v.venue}));
-    if(other){toast('Un’altra partita ha già questa data, avversario e campo.',true);return;}
-    const row=[m.id,m.seasonId,v.date,v.opponent.trim(),v.venue,goalsFor,goalsAgainst,(v.competition||'').trim(),(v.notes||'').trim()];
-    await withBusy(()=>writeAtomic([{sheet:'Partite',row:m._row,rows:[row]}]));
-  }
   async function saveBaseline(playerId) {
     if(!editor())return;
     const f=$('#baseline-form');if(!f.reportValidity())return;
@@ -490,44 +509,86 @@
     const checked=checkedImport();
     if(!checked.rows.length){toast('Nessuna nuova partita da importare.',true);return;}
     if(!state.importPreview || JSON.stringify(checked)!==JSON.stringify(state.importPreview)) {previewImport();toast('Controlla l’anteprima aggiornata prima di importare.',true);return;}
-    const rows=checked.rows.map(m=>[uid('m'),checked.sid,m.date,m.opponent,m.venue,m.goalsFor,m.goalsAgainst,m.competition,m.notes]);
+    const rows=checked.rows.map(m=>[uid('m'),checked.sid,m.date,m.opponent,m.venue,m.goalsFor,m.goalsAgainst,m.competition,m.notes,0]);
     const ok=await withBusy(()=>writeAtomic([{sheet:'Partite',rows}]));
     if(ok){state.seasonId=checked.sid;state.importPreview=null;navigate('matches');toast('Importate '+rows.length+' partite su Google Drive.');}
   }
+  function collectLineup() {
+    const rows=[...document.querySelectorAll('#match-form .roster-entry')];
+    const all=rows.map(row=>{
+      const get=k=>row.querySelector(`[data-line="${k}"]`);
+      return {playerId:row.dataset.playerId,called:get('called').checked,played:get('played').checked,
+        goals:positiveInt(get('goals').value),assists:positiveInt(get('assists').value),yellow:positiveInt(get('yellow').value),red:positiveInt(get('red').value)};
+    });
+    if(all.some(l=>(l.played&&!l.called)||(!l.played&&(l.goals||l.assists||l.yellow||l.red))))throw new Error('I giocatori con statistiche devono risultare presenti e convocati.');
+    if(all.some(l=>l.yellow>2||l.red>1||l.goals>99||l.assists>99))throw new Error('Valori della distinta fuori limite.');
+    return all;
+  }
+  function emptyLineup(l) {return !l.called&&!l.played&&!l.goals&&!l.assists&&!l.yellow&&!l.red;}
   async function saveMatch() {
     if(!editor())return;
-    const f=$('#match-form');if(!f.reportValidity())return;
+    const f=$('#match-form');if(!f||!f.reportValidity())return;
     const v=Object.fromEntries(new FormData(f).entries());
+    const matchId=f.dataset.editId;
+    const existing=state.data.matches.find(m=>m.id===matchId);
     if(positiveInt(v.goalsFor)>99||positiveInt(v.goalsAgainst)>99){toast('Punteggio non valido.',true);return;}
-    if(state.data.matches.some(m=>matchIdentity(m.seasonId,m)===matchIdentity(v.seasonId,{date:v.date,opponent:v.opponent,venue:v.venue}))){toast('Questa partita è già registrata nella stagione.',true);return;}
-    const rows=[...document.querySelectorAll('.roster-entry')];
-    const extracted=rows.map(row=>{
-      const get=k=>row.querySelector(`[data-line="${k}"]`);
-      const called=get('called').checked,played=get('played').checked;
-      return {playerId:row.dataset.playerId,called,played,goals:positiveInt(get('goals').value),assists:positiveInt(get('assists').value),yellow:positiveInt(get('yellow').value),red:positiveInt(get('red').value)};
-    }).filter(l=>l.called||l.played||l.goals||l.assists||l.yellow||l.red);
-    if(extracted.some(l=>(l.played&&!l.called)||(!l.played&&(l.goals||l.assists||l.yellow||l.red)))){toast('Per segnare statistiche, un giocatore deve risultare presente e convocato.',true);return;}
-    const sumGoals=extracted.reduce((t,l)=>t+l.goals,0);
-    if(sumGoals>positiveInt(v.goalsFor)){toast('I gol attribuiti ai giocatori superano quelli segnati dalla squadra.',true);return;}
-    const id=uid('m');
-    const adjustments=[];
-    for(const l of extracted) {
-      const base=state.data.baseline.find(b=>b.seasonId===v.seasonId&&b.playerId===l.playerId);
-      if(!base)continue;
-      const next={...base};
-      const increments={called:l.called?1:0,played:l.played?1:0,goals:l.goals,assists:l.assists,yellow:l.yellow,red:l.red};
-      for(const k of keys){
-        if(increments[k]>base[k]) {const p=state.data.players.find(x=>x.id===l.playerId);toast(`Per ${p?name(p):l.playerId}: il pregresso residuo (${k}: ${base[k]}) non copre questa distinta (${increments[k]}). Correggi prima i totali stagionali o registra solo il risultato.`,true);return;}
-        next[k]=base[k]-increments[k];
+    if(state.data.matches.some(m=>m.id!==matchId && matchIdentity(m.seasonId,m)===matchIdentity(v.seasonId,{date:v.date,opponent:v.opponent,venue:v.venue}))){toast('Questa partita è già registrata nella stagione.',true);return;}
+    let lineup;
+    try {lineup=collectLineup();}catch(error){toast(safeError(error),true);return;}
+    const totalGoals=lineup.reduce((t,l)=>t+l.goals,0);
+    if(totalGoals>positiveInt(v.goalsFor)){toast('I gol assegnati ai giocatori superano il risultato della squadra.',true);return;}
+    const id=existing?.id||uid('m');
+    const newAbsorbed=!!f.querySelector('[name="baselineAbsorbed"]:checked');
+    const oldAbsorbed=!!existing?.baselineAbsorbed;
+    const oldLineups=state.data.lineups.filter(l=>l.matchId===id);
+    const oldMap=new Map(oldLineups.map(l=>[l.playerId,l]));
+    const operations=[];
+    // Se la distinta ricostruisce totali già importati, sposta i valori tra
+    // Pregresso e Distinte. Se è una partita nuova, i numeri aumentano normalmente.
+    const adjusted=[];
+    for(const item of lineup) {
+      const old=oldMap.get(item.playerId);
+      const historical=state.data.baseline.find(b=>b.seasonId===v.seasonId&&b.playerId===item.playerId);
+      const next={};let change=false;
+      for(const k of keys) {
+        const delta=(oldAbsorbed?lineupStat(old,k):0)-(newAbsorbed?lineupStat(item,k):0);
+        next[k]=(historical?.[k]||0)+delta;
+        if(delta!==0)change=true;
+        if(next[k]<0){const p=state.data.players.find(x=>x.id===item.playerId);toast(`La distinta di ${p?name(p):item.playerId} supera il pregresso residuo (${statLabels[k]}). Deseleziona “già comprese nel pregresso” se sono nuove statistiche, oppure correggi il pregresso.`,true);return;}
       }
-      adjustments.push({sheet:'Pregresso',row:base._row,rows:[baselineRow(base,next)]});
+      if(change) adjusted.push({sheet:'Pregresso',...(historical?{row:historical._row}:{}),rows:[historical?baselineRow(historical,next):[v.seasonId,item.playerId,...keys.map(k=>next[k])]]});
     }
-    const saved=await withBusy(()=>writeAtomic([
-      {sheet:'Partite',rows:[[id,v.seasonId,v.date,v.opponent.trim(),v.venue,positiveInt(v.goalsFor),positiveInt(v.goalsAgainst),v.competition.trim(),(v.notes||'').trim()]]},
-      ...(extracted.length?[{sheet:'Distinte',rows:extracted.map(l=>[uid('l'),id,l.playerId,l.called?1:0,l.played?1:0,l.goals,l.assists,l.yellow,l.red])}]:[]),
-      ...adjustments
-    ]));
-    if(saved){state.seasonId=v.seasonId;render();}
+    // Anche un giocatore rimosso dalla distinta va neutralizzato e, se necessario,
+    // restituito al pregresso (le righe storiche non vengono cancellate).
+    const newMap=new Map(lineup.map(l=>[l.playerId,l]));
+    for(const old of oldLineups) if(!newMap.has(old.playerId)) {
+      const oldbase=state.data.baseline.find(b=>b.seasonId===v.seasonId&&b.playerId===old.playerId);
+      if(oldAbsorbed)adjusted.push({sheet:'Pregresso',...(oldbase?{row:oldbase._row}:{}),rows:[oldbase?baselineRow(oldbase,Object.fromEntries(keys.map(k=>[k,(oldbase[k]||0)+lineupStat(old,k)]))):[v.seasonId,old.playerId,...keys.map(k=>lineupStat(old,k))]]});
+      operations.push({sheet:'Distinte',row:old._row,rows:[[old.id,id,old.playerId,0,0,0,0,0,0]]});
+    }
+    const matchRow=[id,v.seasonId,v.date,v.opponent.trim(),v.venue,positiveInt(v.goalsFor),positiveInt(v.goalsAgainst),(v.competition||'').trim(),(v.notes||'').trim(),newAbsorbed?1:0];
+    operations.unshift({sheet:'Partite',...(existing?{row:existing._row}:{}),rows:[matchRow]});
+    for(const l of lineup) {
+      const old=oldMap.get(l.playerId);
+      if(!old && emptyLineup(l))continue;
+      if(old||!emptyLineup(l))operations.push({sheet:'Distinte',...(old?{row:old._row}:{}),rows:[[old?.id||uid('l'),id,l.playerId,l.called?1:0,l.played?1:0,l.goals,l.assists,l.yellow,l.red]]});
+    }
+    operations.push(...adjusted);
+    const saved=await withBusy(()=>writeAtomic(operations));
+    if(saved){state.seasonId=v.seasonId;navigate('matches');}
+  }
+  function updateLineupSummary() {
+    const wrap=$('#match-form');if(!wrap)return;
+    const rows=[...wrap.querySelectorAll('.roster-entry')];
+    let called=0,played=0;
+    for(const row of rows){
+      const selected=row.querySelector('[data-line="called"]').checked;
+      const onField=row.querySelector('[data-line="played"]').checked;
+      if(selected)called++;if(onField)played++;
+      row.classList.toggle('is-called',selected);
+      row.classList.toggle('is-played',onField);
+    }
+    const text=$('#lineup-summary');if(text)text.textContent=`${called} convocati · ${played} presenze`;
   }
   function rosterToggle(target) {
     const row=target.closest('.roster-entry');if(!row)return;
@@ -535,9 +596,14 @@
     if(target.dataset.line==='played'&&target.checked)get('called').checked=true;
     if(target.dataset.line==='called'&&!target.checked)get('played').checked=false;
     const played=get('played').checked;
-    for(const k of ['goals','assists','yellow','red']){
-      get(k).disabled=!played;if(!played)get(k).value='0';
-    }
+    for(const k of ['goals','assists','yellow','red']){get(k).disabled=!played;if(!played)get(k).value='0';}
+    updateLineupSummary();
+  }
+  function bulkCalled(checked) {
+    document.querySelectorAll('#match-form .roster-entry').forEach(row=>{
+      const called=row.querySelector('[data-line="called"]');called.checked=checked;rosterToggle(called);
+    });
+    updateLineupSummary();
   }
   function handleClick(event) {
     if(event.target.classList.contains('modal-backdrop')){closeModal();return;}
@@ -553,7 +619,6 @@
     else if(action==='new-season')seasonForm();
     else if(action==='edit-season')seasonForm(btn.dataset.id);
     else if(action==='edit-match')editMatchForm(btn.dataset.id);
-    else if(action==='save-edited-match')saveEditedMatch(btn.dataset.id);
     else if(action==='edit-baseline')baselineForm(btn.dataset.id);
     else if(action==='save-baseline')saveBaseline(btn.dataset.id);
     else if(action==='import-results')importResultsForm();
@@ -564,6 +629,8 @@
     else if(action==='save-player')savePlayer(btn.dataset.id);
     else if(action==='save-season')saveSeason(btn.dataset.id);
     else if(action==='save-match')saveMatch();
+    else if(action==='mark-all-called')bulkCalled(true);
+    else if(action==='clear-all-called')bulkCalled(false);
     else if(action==='export')exportCSV();
   }
   document.addEventListener('click',handleClick);
