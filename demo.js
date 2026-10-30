@@ -1,8 +1,10 @@
 /** Trascrizione iniziale della schermata fornita dall'utente. Nessuna partita inventata.
- * ATTENZIONE: il valore '-57' nei gol di Antonio è anomalo: non è importato e va verificato.
+ * Il valore originale '-57' per Antonio è rappresentato come gol subiti dal portiere.
  * Questi dati sono una DEMO LOCALE: si modificano su Drive solo dopo la configurazione.
  */
 window.EXPATS_DEMO = {
+  roles: ['Portiere','Difensore','Centrale','Terzino','Esterno','Centrocampista','Mediano','Trequartista','Attaccante','Punta','Jolly'].map((name,i)=>({id:'r_'+i,name,type:i===0?'PORTIERE':'MOVIMENTO',active:true})),
+  states:[{id:'ATTIVO',name:'Attivo',color:'#35c986',active:true},{id:'INFORTUNATO',name:'Infortunato',color:'#f2b84e',active:true},{id:'RITIRATO',name:'Ritirato',color:'#8898ad',active:true}],
   seasons: [{ id: 's-import', name: '2025/26', start: '2025-07-01', end: '2026-06-30' },{id:'s-2026-27',name:'2026/27',start:'2026-07-01',end:'2027-06-30'}],
   players: [
     ['p1',1,'Antonio','Stridi','ATTIVO','Portiere'],
@@ -31,7 +33,7 @@ window.EXPATS_DEMO = {
   matches: [],
   lineups: [],
   baseline: [
-    ['p1',18,17,0,0,0,0],['p2',7,7,3,1,0,0],['p3',0,0,0,0,0,0],
+    ['p1',18,17,-57,0,0,0],['p2',7,7,3,1,0,0],['p3',0,0,0,0,0,0],
     ['p4',12,12,2,0,0,0],['p5',15,15,0,2,1,0],['p6',5,4,0,0,1,0],
     ['p7',10,10,2,4,0,0],['p8',17,17,14,4,2,0],['p9',16,16,14,15,2,0],
     ['p10',14,14,14,10,3,1],['p11',16,16,14,3,1,0],['p13',1,1,0,0,0,0],
