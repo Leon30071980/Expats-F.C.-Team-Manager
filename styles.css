@@ -197,3 +197,14 @@ button,input,select,textarea{font-family:inherit}
 .roster-entry[data-keeper="1"] [data-line="goals"]{border-color:#d3934d}
 .roster-entry .player-label{font-size:12px}
 @media(max-width:560px){.roster-form .roster-header,.roster-form .roster-entry{min-width:765px}}
+
+/* v1.12 — ruoli tutti visibili, senza alterare l'altezza uniforme delle righe. */
+/* Il contenuto piu' lungo determina la larghezza naturale della colonna Ruolo;
+   sui display stretti la tabella scorre orizzontalmente, non i badge. */
+.roster-table{table-layout:auto}
+.roster-table .inline-cell.role-cell{min-width:370px;width:auto;max-width:none;white-space:nowrap}
+.roster-table .roles-cell-inner{display:inline-flex;width:max-content;max-width:none;min-width:0;align-items:center;gap:9px;height:45px;white-space:nowrap}
+.roster-table .role-badge-strip{display:inline-flex;flex:0 0 auto;width:max-content;max-width:none;min-width:0;gap:7px;flex-wrap:nowrap;white-space:nowrap;overflow:visible;padding:3px 0}
+.roster-table .role-editor-button{flex:0 0 34px}
+.roster-table tbody tr,.roster-table tbody td{height:84px}
+.roster-table .metric-goals .metric-value{white-space:nowrap}
