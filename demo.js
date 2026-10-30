@@ -27,8 +27,8 @@ window.EXPATS_DEMO = {
     ['p31',31,'Giorgio','Macauda','ATTIVO','']
   ].map(([id, number, firstName, lastName, status, role]) => ({id,number,firstName,lastName,status,role,notes:''})),
   memberships: [
-    ...[1,2,3,4,5,6,7,8,9,10,11,13,14,15,16,17,18,31].map(n=>({seasonId:'s-import',playerId:'p'+n,inRoster:true})),
-    ...[1,2,3,4,5,6,7,8,9,10,11,13,14,15,16,17,18,31].map(n=>({seasonId:'s-2026-27',playerId:'p'+n,inRoster:true}))
+    ...[1,2,3,4,5,6,7,8,9,10,11,13,14,15,16,17,18,31].map(n=>({seasonId:'s-import',playerId:'p'+n,inRoster:true,number:n,role:n===1?'Portiere':'',status:[15,16].includes(n)?'INFORTUNATO':'ATTIVO'})),
+    ...[1,2,3,4,5,6,7,8,9,10,11,13,14,15,16,17,18,31].map(n=>({seasonId:'s-2026-27',playerId:'p'+n,inRoster:true,number:n,role:n===1?'Portiere':'',status:[15,16].includes(n)?'INFORTUNATO':'ATTIVO'}))
   ],
   matches: [],
   lineups: [],
