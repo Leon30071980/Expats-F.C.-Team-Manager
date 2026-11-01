@@ -1,4 +1,4 @@
-/* EXPATS F.C. TEAM MANAGER — v1.18
+/* EXPATS F.C. TEAM MANAGER — v1.19
  * Frontend statico GitHub Pages + Google Sheets API (edit via OAuth) + GViz JSONP (pubblico).
  * Il controllo delle modifiche dipende dai permessi Google Drive sul foglio.
  */
@@ -6,7 +6,7 @@
   'use strict';
   const CFG = window.EXPATS_CONFIG;
   const SHEETS = ['Giocatori','Stagioni','Partite','Distinte','Pregresso','Tesseramenti','Ruoli','Stati','CampionatoClassifica','CampionatoPartite','CampionatoWidget'];
-  const VERSION='v1.18';
+  const VERSION='v1.19';
   const state = {
     data: structuredClone(window.EXPATS_DEMO),
     source: 'demo', view: 'dashboard', seasonId: '', rosterScope: 'season',
@@ -356,7 +356,7 @@
     const fixed=`https://${url.hostname}/${match[1]}/${match[2]}/${match[3]}`+(match[4]?`/${match[4]}`:'');
     return fixed+(year?`?y=${year}`:'');
   }
-  // v1.18: codici ufficiali forniti per la stagione 2025/26.
+  // v1.19: codici ufficiali forniti per la stagione 2025/26.
   // Sono riferimenti di sola lettura: nessuna importazione nelle partite della squadra
   // e nessuna modifica a Pregresso/Distinte/Statistiche individuali.
   const WIDGET_2025_26_ID='e5e9837f-be81-470f-be74-5a3b7dfd9d52';
@@ -371,31 +371,10 @@
     const candidate=entry?.url || (isLeague2025_26(sid)?LEGACY_2025_26_WIDGETS[type]:'') || '';
     try{return leagueWidgetUrl(candidate,type);}catch(_){return '';}
   };
-  // Tuttocampo è cross-origin: il browser non consente di leggere l'altezza reale
-  // della pagina interna. Altezze contenute + regolazione per widget (solo locale).
-  const LEAGUE_HEIGHT_DEFAULTS={Classifica:620,Risultati:460,UltimaPartita:250,ProssimaPartita:250,Partite:620};
-  const LEAGUE_HEIGHT_MIN={Classifica:240,Risultati:200,UltimaPartita:150,ProssimaPartita:150,Partite:240};
-  const leagueHeightKey=(sid,type)=>`expats-fc-league-widget-height-v1:${sid}:${type}`;
-  function leagueHeight(sid,type){
-    const fallback=LEAGUE_HEIGHT_DEFAULTS[type]||500;
-    let raw='';try{raw=localStorage.getItem(leagueHeightKey(sid,type))||'';}catch(_){}
-    const value=Number(raw);
-    return raw&&Number.isFinite(value)?Math.max(LEAGUE_HEIGHT_MIN[type]||200,Math.min(1500,Math.round(value))):fallback;
-  }
-  function adjustLeagueHeight(button){
-    const type=button.dataset.widgetType,sid=state.seasonId,delta=Number(button.dataset.delta)||0;
-    if(!Object.hasOwn(LEAGUE_HEIGHT_DEFAULTS,type))return;
-    const height=Math.max(LEAGUE_HEIGHT_MIN[type]||200,Math.min(1500,leagueHeight(sid,type)+delta));
-    try{localStorage.setItem(leagueHeightKey(sid,type),String(height));}catch(_){}
-    const frame=button.closest('.league-embed-wrap')?.querySelector('iframe');
-    if(frame)frame.style.height=height+'px';
-    const output=button.closest('.league-embed-controls')?.querySelector('.league-height-value');
-    if(output)output.textContent=height+' px';
-  }
-  const embedLeagueWidget=(url,title,type)=>{
-    const height=leagueHeight(state.seasonId,type);
-    return `<div class="league-embed-wrap"><div class="league-embed-controls" role="group" aria-label="Regola altezza ${esc(title)}"><span class="league-embed-source">Tuttocampo</span><div class="league-resize-actions"><span>Altezza</span><button type="button" class="league-resize-btn" data-action="league-height" data-widget-type="${type}" data-delta="-60" aria-label="Riduci altezza ${esc(title)}" title="Riduci spazio bianco">−</button><span class="league-height-value" aria-live="polite">${height} px</span><button type="button" class="league-resize-btn" data-action="league-height" data-widget-type="${type}" data-delta="60" aria-label="Aumenta altezza ${esc(title)}" title="Mostra più righe">+</button></div></div><iframe class="league-embed league-embed-${type.toLowerCase()}" style="height:${height}px" src="${esc(url)}" title="${esc(title)}" loading="lazy" scrolling="auto" sandbox="allow-scripts allow-same-origin allow-popups" referrerpolicy="strict-origin-when-cross-origin"></iframe></div>`;
-  };
+  // v1.19: layout classico dei widget, senza pulsanti di ridimensionamento.
+  // Lo sfondo bianco esterno e' sostituito dall'effetto grafico CSS sul frame.
+  // Non accediamo al DOM di Tuttocampo: rimane un iframe cross-origin.
+  const embedLeagueWidget=(url,title,type)=>`<div class="league-embed-wrap"><div class="league-embed-head"><span class="league-embed-mark">Dati Tuttocampo</span><span>Aggiornamento gestito dalla fonte</span></div><iframe class="league-embed league-embed-${type.toLowerCase()}" src="${esc(url)}" title="${esc(title)}" loading="lazy" sandbox="allow-scripts allow-same-origin allow-popups" referrerpolicy="strict-origin-when-cross-origin"></iframe></div>`;
   const leagueStamp=batch=>batch?new Date(batch).toLocaleString('it-IT',{dateStyle:'medium',timeStyle:'short'}):'Nessuna importazione';
   function renderLeague() {
     const season=activeSeason(),standings=leagueLatest(state.data.leagueStandings,season.id),fixtures=leagueLatest(state.data.leagueFixtures,season.id);
@@ -543,7 +522,7 @@
     `<div class="two-cards"><div class="panel"><div class="panel-heading"><h2 class="panel-title">🔐 Stato connessione</h2></div><div class="breakdown"><div><span>Versione applicazione</span><strong>${VERSION}</strong></div><div><span>Origine dati</span><strong>${state.source==='drive'?'Google Drive':'Demo locale'}</strong></div><div><span>Modalità</span><strong>${editor()?'Google OAuth attivo':'Sola consultazione'}</strong></div><div><span>Archivio</span><strong>${CFG.spreadsheetId?'Configurato':'Da configurare'}</strong></div></div><p class="notice">Le autorizzazioni di scrittura non sono affidate al sito GitHub: le controlla Google tramite i permessi del foglio.</p></div>
       <div class="panel"><div class="panel-heading"><h2 class="panel-title">📂 Dove sono salvati i dati?</h2></div><p class="form-guide">Tutte le informazioni sono conservate in un unico Google Sheets nel tuo Drive, diviso in 11 schede.</p><div class="breakdown">${SHEETS.map(s=>`<div><span>${esc(s)}</span><strong>Google Sheets</strong></div>`).join('')}</div>${CFG.spreadsheetId?`<p><a target="_blank" rel="noopener noreferrer" href="https://docs.google.com/spreadsheets/d/${encodeURIComponent(CFG.spreadsheetId)}/edit">Apri archivio Google Sheets ↗</a></p>`:''}</div></div>
     <div class="panel mt-20"><div class="panel-heading"><h2 class="panel-title">🎨 Ruoli, stati e colori</h2></div><p class="form-guide">Personalizza ruoli e stati, compreso il colore di ciascuno. Il tipo Portiere resta un attributo dei ruoli. Le scelte sono memorizzate su Google Sheets e sono valide per tutti.</p><div class="intro-buttons"><button class="btn btn-secondary only-editor" data-action="manage-roles">Gestisci ruoli e colori</button><button class="btn btn-secondary only-editor" data-action="manage-states">Gestisci stati e colori</button></div><div class="catalog-overview">${availableRoles().map(x=>roleBadge(x.name)).join(' ')}${availableStates().map(x=>statusBadge(x.id)).join(' ')}</div></div>
-    <div class="panel mt-20"><div class="panel-heading"><h2 class="panel-title">🚀 Messa online</h2></div><div class="two-cards"><div class="info-step"><h3>1. Aggiorna il database esistente</h3><p>Solo se parti da una versione precedente alla v1.11 esegui <strong>aggiornaDatabaseV111</strong> in Apps Script: aggiunge le colonne per il ruolo partita e per distinguere gol fatti/subiti, preservando i dati. Da versioni precedenti alla v1.9 occorre prima aggiornare lo schema AutogolFavore.</p></div><div class="info-step"><h3>2. Conserva l’accesso Google</h3><p>Se l’app è già collegata a Google, non modificare <strong>config.js</strong> né l’ID client OAuth: rimangono validi.</p></div><div class="info-step"><h3>3. Aggiorna alla v1.18</h3><p>Se provieni dalla v1.17, sostituisci soltanto <strong>index.html, app.js e styles.css</strong>. Non serve modificare Google Sheets o Apps Script. Se invece provieni da versioni precedenti alla v1.16, esegui prima <strong>aggiornaDatabaseV116</strong>. Conserva config.js.</p></div><div class="info-step"><h3>4. Campionato storico 2025/26</h3><p>Seleziona 2025/26 → Campionato per visualizzare la classifica e i risultati Tuttocampo già collegati. Solo se vuoi registrare i risultati anche nelle partite interne della squadra, usa l’importazione CSV; i dati individuali storici non vengono modificati dai widget.</p></div></div><p class="notice mt-20">Per tutte le istruzioni operative, vedere il file LEGGIMI.md incluso nel progetto.</p></div>`;
+    <div class="panel mt-20"><div class="panel-heading"><h2 class="panel-title">🚀 Messa online</h2></div><div class="two-cards"><div class="info-step"><h3>1. Aggiorna il database esistente</h3><p>Solo se parti da una versione precedente alla v1.11 esegui <strong>aggiornaDatabaseV111</strong> in Apps Script: aggiunge le colonne per il ruolo partita e per distinguere gol fatti/subiti, preservando i dati. Da versioni precedenti alla v1.9 occorre prima aggiornare lo schema AutogolFavore.</p></div><div class="info-step"><h3>2. Conserva l’accesso Google</h3><p>Se l’app è già collegata a Google, non modificare <strong>config.js</strong> né l’ID client OAuth: rimangono validi.</p></div><div class="info-step"><h3>3. Aggiorna alla v1.19</h3><p>Se provieni dalla v1.18, sostituisci soltanto <strong>index.html, app.js e styles.css</strong>. Non serve modificare Google Sheets o Apps Script. Se invece provieni da versioni precedenti alla v1.16, esegui prima <strong>aggiornaDatabaseV116</strong>. Conserva config.js.</p></div><div class="info-step"><h3>4. Campionato storico 2025/26</h3><p>Seleziona 2025/26 → Campionato per visualizzare la classifica e i risultati Tuttocampo già collegati. Solo se vuoi registrare i risultati anche nelle partite interne della squadra, usa l’importazione CSV; i dati individuali storici non vengono modificati dai widget.</p></div></div><p class="notice mt-20">Per tutte le istruzioni operative, vedere il file LEGGIMI.md incluso nel progetto.</p></div>`;
   }
   function render() {
     if(!state.data.seasons.some(s=>s.id===state.seasonId)) state.seasonId=defaultSeason()?.id||'';
@@ -718,7 +697,7 @@
     };
     const rows=[labels,...playerRows().map((p,i)=>[i+1,...fields.map(k=>k==='seasons'?seasonsPlayed(p.id):k==='role'?rolesText(p.role):k==='goals'?rosterGoalText(p):p[k])])];
     const csv='\ufeff'+rows.map(row=>row.map(escapeCSV).join(';')).join('\r\n');
-    const blob=new Blob([csv],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=el('a',{href:url,download:`expats-fc-${state.seasonId}-v1.18.csv`});
+    const blob=new Blob([csv],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=el('a',{href:url,download:`expats-fc-${state.seasonId}-v1.19.csv`});
     document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),2000);toast('Classifica esportata in CSV.');
   }
   // --- Google Drive: lettura pubblica via Google Visualization JSONP ---
@@ -1262,7 +1241,6 @@
     else if(action==='league-widgets')leagueWidgetsDialog();
     else if(action==='league-widgets-save')leagueWidgetsSave().catch(e=>toast(safeError(e),true));
     else if(action==='league-tab'){state.leagueTab=btn.dataset.tab==='calendario'?'calendario':'classifica';render();}
-    else if(action==='league-height')adjustLeagueHeight(btn);
     else if(action==='league-import')leagueImportDialog(btn.dataset.kind);
     else if(action==='league-validate')leagueValidate(btn.dataset.kind);
     else if(action==='league-save')leagueSave(btn.dataset.kind);
