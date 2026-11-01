@@ -263,3 +263,12 @@ button,input,select,textarea{font-family:inherit}
 .league-embed{background:transparent;filter:invert(1) hue-rotate(180deg);mix-blend-mode:screen}
 /* Il fallback conserva la visualizzazione originale senza alterare i dati. */
 @supports not (mix-blend-mode:screen){.league-embed{filter:none;background:#fff}}
+
+/* v1.20 — NON invertire i contenuti grafici delle schede Ultima/Prossima.
+   L'iframe è cross-origin; uno sfondo realmente trasparente non e' possibile.
+   Il blend darken mantiene il senso dei colori, senza inversioni, e integra
+   visivamente il bianco con la cornice scura: la resa cromatica può variare. */
+.league-embed-ultimapartita,.league-embed-prossimapartita{
+  filter:none;
+  mix-blend-mode:darken;
+}

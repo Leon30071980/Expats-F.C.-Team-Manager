@@ -356,22 +356,23 @@
     const fixed=`https://${url.hostname}/${match[1]}/${match[2]}/${match[3]}`+(match[4]?`/${match[4]}`:'');
     return fixed+(year?`?y=${year}`:'');
   }
-  // v1.19: codici ufficiali forniti per la stagione 2025/26.
-  // Sono riferimenti di sola lettura: nessuna importazione nelle partite della squadra
-  // e nessuna modifica a Pregresso/Distinte/Statistiche individuali.
-  const WIDGET_2025_26_ID='e5e9837f-be81-470f-be74-5a3b7dfd9d52';
-  const LEGACY_2025_26_WIDGETS={
-    Classifica:`https://www.tuttocampo.it/WidgetV2/Classifica/${WIDGET_2025_26_ID}`,
-    Risultati:`https://www.tuttocampo.it/WidgetV2/Risultati/${WIDGET_2025_26_ID}`
-  };
+  // v1.20: nel 2025/26 Expats F.C. era nel Girone B, NON nel Girone A.
+  // Il vecchio ID era sbagliato. Blocchiamo il codice anche se salvato su Google
+  // Sheets. Non inventiamo un nuovo UUID: va ricavato dal widget del girone B.
+  const HISTORICAL_2025_26_PAGE='https://www.tuttocampo.it/2025-26/EmiliaRomagna/AmatoriCSI/GironeBCalcioa7OpenBParma/Risultati';
+  const INVALID_2025_26_WIDGET_ID='e5e9837f-be81-470f-be74-5a3b7dfd9d52';
   const isLeague2025_26=sid=>/^2025\s*\/\s*(?:26|2026)$/.test(String(state.data.seasons.find(s=>s.id===sid)?.name||'').trim());
   const getLeagueWidget=(sid,type)=>{
     const entry=(state.data.leagueWidgets||[]).find(x=>x.seasonId===sid&&x.type===type);
-    // I codici già configurati manualmente mantengono la priorità.
-    const candidate=entry?.url || (isLeague2025_26(sid)?LEGACY_2025_26_WIDGETS[type]:'') || '';
+    const candidate=entry?.url||'';
+    if(!candidate)return '';
+    // Evita di mostrare dati del girone sbagliato anche quando il codice
+    // precedente e' ancora salvato nel foglio CampionatoWidget.
+    if(isLeague2025_26(sid)&&candidate.toLowerCase().includes(INVALID_2025_26_WIDGET_ID))return '';
     try{return leagueWidgetUrl(candidate,type);}catch(_){return '';}
   };
-  // v1.19: layout classico dei widget, senza pulsanti di ridimensionamento.
+  const wrongHistoricWidgetSaved=sid=>isLeague2025_26(sid)&&(state.data.leagueWidgets||[]).some(x=>x.seasonId===sid&&String(x.url||'').toLowerCase().includes(INVALID_2025_26_WIDGET_ID));
+  // v1.20: widget campionato in layout classico senza ridimensionamento.
   // Lo sfondo bianco esterno e' sostituito dall'effetto grafico CSS sul frame.
   // Non accediamo al DOM di Tuttocampo: rimane un iframe cross-origin.
   const embedLeagueWidget=(url,title,type)=>`<div class="league-embed-wrap"><div class="league-embed-head"><span class="league-embed-mark">Dati Tuttocampo</span><span>Aggiornamento gestito dalla fonte</span></div><iframe class="league-embed league-embed-${type.toLowerCase()}" src="${esc(url)}" title="${esc(title)}" loading="lazy" sandbox="allow-scripts allow-same-origin allow-popups" referrerpolicy="strict-origin-when-cross-origin"></iframe></div>`;
@@ -386,11 +387,15 @@
     const widgetUltima=getLeagueWidget(season.id,'UltimaPartita');
     const widgetProssima=getLeagueWidget(season.id,'ProssimaPartita');
     const widgetMode=!!(widgetClassifica||widgetRisultati||widgetUltima||widgetProssima||widgetPartite);
-    const heading=intro('CSI PARMA · CALCIO A 7 OPEN B · GIRONE A','Campionato',`Classifica, calendario e risultati · ${season.name}`,
+    const heading=intro(`CSI PARMA · CALCIO A 7 OPEN B · GIRONE ${isLeague2025_26(season.id)?'B':'A'}`,'Campionato',`Classifica, calendario e risultati · ${season.name}`,
       `<button class="btn btn-primary only-editor" data-action="league-widgets">⚙ Collega widget</button>`);
-    const sourcePanel=widgetMode?
-      `<div class="league-source"><div><strong>Campionato integrato</strong><p>Classifica e risultati sono visualizzati da Tuttocampo direttamente nell'app. Per il 2025/26 il collegamento storico è già predisposto. Non vengono modificati i dati individuali degli Expats.</p></div><span class="chip success">Widget collegati</span></div>`:
-      `<div class="league-source"><div><strong>Campionato nella tua app</strong><p>Per visualizzare qui la classifica e le partite sempre aggiornate, collega una sola volta i widget ufficiali del girone dal pulsante “Collega widget”. In alternativa puoi usare le importazioni CSV già disponibili.</p></div><span class="chip neutral">Fonte da collegare</span></div>`;
+    const historicSource=isLeague2025_26(season.id);
+    const histLink=`<a href="${HISTORICAL_2025_26_PAGE}" target="_blank" rel="noopener noreferrer">Tuttocampo · Girone B 2025/26</a>`;
+    const sourcePanel=historicSource?
+      `<div class="league-source"><div><strong>Stagione 2025/26 · Girone B</strong><p>Il precedente collegamento apparteneva a un girone diverso ed è stato disattivato. Per mostrare qui i dati corretti occorrono i codici dei widget Classifica e Risultati della pagina ${histLink}. ${wrongHistoricWidgetSaved(season.id)?'Nel Google Sheets è ancora presente il vecchio collegamento: sostituiscilo da “Collega widget”.':''} Le statistiche individuali restano inalterate.</p></div><span class="chip neutral">${widgetMode?'Widget storico configurato':'Widget corretto richiesto'}</span></div>`:
+      (widgetMode?
+      `<div class="league-source"><div><strong>Campionato integrato</strong><p>Classifica e risultati vengono visualizzati da Tuttocampo direttamente nell'app; i dati individuali degli Expats non vengono modificati.</p></div><span class="chip success">Widget collegati</span></div>`:
+      `<div class="league-source"><div><strong>Campionato nella tua app</strong><p>Per visualizzare qui la classifica e le partite sempre aggiornate, collega una sola volta i widget ufficiali del girone dal pulsante “Collega widget”. In alternativa puoi usare le importazioni CSV già disponibili.</p></div><span class="chip neutral">Fonte da collegare</span></div>`);
     const tabs=`<div class="league-tabs" role="tablist" aria-label="Sezioni campionato"><button type="button" role="tab" aria-selected="${state.leagueTab==='classifica'}" class="${state.leagueTab==='classifica'?'selected':''}" data-action="league-tab" data-tab="classifica">Classifica</button><button type="button" role="tab" aria-selected="${state.leagueTab==='calendario'}" class="${state.leagueTab==='calendario'?'selected':''}" data-action="league-tab" data-tab="calendario">Calendario e risultati</button></div>`;
     const sourceCredit=`<p class="league-credit">Fonte dei widget: Tuttocampo. I dati visualizzati nel riquadro esterno sono gestiti dalla fonte, non vengono copiati nelle statistiche dei giocatori. Se un widget non carica, verifica il codice di incorporamento fornito da Tuttocampo.</p>`;
     if(state.leagueTab==='classifica'){
@@ -419,7 +424,7 @@
     if((state.data.leagueWidgets||[]).some(x=>x.seasonId===season.id&&x.type==='Partite'))types.push('Partite');
     const widgets=Object.fromEntries(types.map(type=>[type,getLeagueWidget(season.id,type)]));
     const fields=types.map(type=>`<div class="field"><label for="league-widget-${type}">Widget ${LEAGUE_WIDGET_LABELS[type]}</label><textarea id="league-widget-${type}" class="form-control league-widget-input" rows="2" spellcheck="false" placeholder="Incolla il codice iframe o il link del widget ${LEAGUE_WIDGET_LABELS[type]}">${esc(widgets[type])}</textarea></div>`).join('');
-    modal('Collega i widget ufficiali del campionato',`<div class="modal-explainer">Stagione <strong>${esc(season.name)}</strong>. Incolla i codici ufficiali per <strong>Classifica</strong>, <strong>Risultati</strong>, <strong>Ultima partita</strong> e <strong>Prossima partita</strong>. Il widget Ultima partita può avere un indirizzo <code>/WidgetV2/Partita/…</code>. I codici già collegati vengono mantenuti: non devi reinserirli.</div><div class="field-grid">${fields}</div><p class="notice">Collega soltanto i widget del campionato o della squadra corretti. Sono ammessi esclusivamente gli indirizzi ufficiali Tuttocampo. Le statistiche dei giocatori non vengono modificate.</p>`,
+    modal('Collega i widget ufficiali del campionato',`<div class="modal-explainer">Stagione <strong>${esc(season.name)}</strong>. ${isLeague2025_26(season.id)?`Per il 2025/26 recupera i widget della pagina ${`<a href="${HISTORICAL_2025_26_PAGE}" target="_blank" rel="noopener noreferrer">Girone B Calcio a 7 Open B Parma</a>`}; il vecchio Girone A era errato.`:'Incolla i codici ufficiali del girone corrente.'} Inserisci i codici per <strong>Classifica</strong>, <strong>Risultati</strong>, <strong>Ultima partita</strong> e <strong>Prossima partita</strong>. Il widget Ultima partita può avere un indirizzo <code>/WidgetV2/Partita/…</code>.</div><div class="field-grid">${fields}</div><p class="notice">La semplice pagina /Risultati NON è un codice widget. Sono ammessi soltanto indirizzi widget ufficiali Tuttocampo. Le statistiche dei giocatori non vengono modificate.</p>`,
     `<button class="btn btn-primary" data-action="league-widgets-save">Salva collegamenti su Google Drive</button>`,true);
   }
   async function leagueWidgetsSave(){
@@ -522,7 +527,7 @@
     `<div class="two-cards"><div class="panel"><div class="panel-heading"><h2 class="panel-title">🔐 Stato connessione</h2></div><div class="breakdown"><div><span>Versione applicazione</span><strong>${VERSION}</strong></div><div><span>Origine dati</span><strong>${state.source==='drive'?'Google Drive':'Demo locale'}</strong></div><div><span>Modalità</span><strong>${editor()?'Google OAuth attivo':'Sola consultazione'}</strong></div><div><span>Archivio</span><strong>${CFG.spreadsheetId?'Configurato':'Da configurare'}</strong></div></div><p class="notice">Le autorizzazioni di scrittura non sono affidate al sito GitHub: le controlla Google tramite i permessi del foglio.</p></div>
       <div class="panel"><div class="panel-heading"><h2 class="panel-title">📂 Dove sono salvati i dati?</h2></div><p class="form-guide">Tutte le informazioni sono conservate in un unico Google Sheets nel tuo Drive, diviso in 11 schede.</p><div class="breakdown">${SHEETS.map(s=>`<div><span>${esc(s)}</span><strong>Google Sheets</strong></div>`).join('')}</div>${CFG.spreadsheetId?`<p><a target="_blank" rel="noopener noreferrer" href="https://docs.google.com/spreadsheets/d/${encodeURIComponent(CFG.spreadsheetId)}/edit">Apri archivio Google Sheets ↗</a></p>`:''}</div></div>
     <div class="panel mt-20"><div class="panel-heading"><h2 class="panel-title">🎨 Ruoli, stati e colori</h2></div><p class="form-guide">Personalizza ruoli e stati, compreso il colore di ciascuno. Il tipo Portiere resta un attributo dei ruoli. Le scelte sono memorizzate su Google Sheets e sono valide per tutti.</p><div class="intro-buttons"><button class="btn btn-secondary only-editor" data-action="manage-roles">Gestisci ruoli e colori</button><button class="btn btn-secondary only-editor" data-action="manage-states">Gestisci stati e colori</button></div><div class="catalog-overview">${availableRoles().map(x=>roleBadge(x.name)).join(' ')}${availableStates().map(x=>statusBadge(x.id)).join(' ')}</div></div>
-    <div class="panel mt-20"><div class="panel-heading"><h2 class="panel-title">🚀 Messa online</h2></div><div class="two-cards"><div class="info-step"><h3>1. Aggiorna il database esistente</h3><p>Solo se parti da una versione precedente alla v1.11 esegui <strong>aggiornaDatabaseV111</strong> in Apps Script: aggiunge le colonne per il ruolo partita e per distinguere gol fatti/subiti, preservando i dati. Da versioni precedenti alla v1.9 occorre prima aggiornare lo schema AutogolFavore.</p></div><div class="info-step"><h3>2. Conserva l’accesso Google</h3><p>Se l’app è già collegata a Google, non modificare <strong>config.js</strong> né l’ID client OAuth: rimangono validi.</p></div><div class="info-step"><h3>3. Aggiorna alla v1.19</h3><p>Se provieni dalla v1.18, sostituisci soltanto <strong>index.html, app.js e styles.css</strong>. Non serve modificare Google Sheets o Apps Script. Se invece provieni da versioni precedenti alla v1.16, esegui prima <strong>aggiornaDatabaseV116</strong>. Conserva config.js.</p></div><div class="info-step"><h3>4. Campionato storico 2025/26</h3><p>Seleziona 2025/26 → Campionato per visualizzare la classifica e i risultati Tuttocampo già collegati. Solo se vuoi registrare i risultati anche nelle partite interne della squadra, usa l’importazione CSV; i dati individuali storici non vengono modificati dai widget.</p></div></div><p class="notice mt-20">Per tutte le istruzioni operative, vedere il file LEGGIMI.md incluso nel progetto.</p></div>`;
+    <div class="panel mt-20"><div class="panel-heading"><h2 class="panel-title">🚀 Messa online</h2></div><div class="two-cards"><div class="info-step"><h3>1. Aggiorna il database esistente</h3><p>Solo se parti da una versione precedente alla v1.11 esegui <strong>aggiornaDatabaseV111</strong> in Apps Script: aggiunge le colonne per il ruolo partita e per distinguere gol fatti/subiti, preservando i dati. Da versioni precedenti alla v1.9 occorre prima aggiornare lo schema AutogolFavore.</p></div><div class="info-step"><h3>2. Conserva l’accesso Google</h3><p>Se l’app è già collegata a Google, non modificare <strong>config.js</strong> né l’ID client OAuth: rimangono validi.</p></div><div class="info-step"><h3>3. Aggiorna alla v1.20</h3><p>Se provieni dalla v1.19, sostituisci soltanto <strong>index.html, app.js e styles.css</strong>. Non serve modificare Google Sheets o Apps Script. Se invece provieni da versioni precedenti alla v1.16, esegui prima <strong>aggiornaDatabaseV116</strong>. Conserva config.js.</p></div><div class="info-step"><h3>4. Campionato storico 2025/26</h3><p>Seleziona 2025/26 → Campionato e collega i widget ufficiali del Girone B. I vecchi widget del Girone A sono esclusi. Solo se vuoi registrare i risultati anche nelle partite interne della squadra, usa l’importazione CSV; i dati individuali storici non vengono modificati dai widget.</p></div></div><p class="notice mt-20">Per tutte le istruzioni operative, vedere il file LEGGIMI.md incluso nel progetto.</p></div>`;
   }
   function render() {
     if(!state.data.seasons.some(s=>s.id===state.seasonId)) state.seasonId=defaultSeason()?.id||'';
