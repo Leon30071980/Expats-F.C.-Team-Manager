@@ -1,5 +1,6 @@
 /** Expats F.C. Team Manager — v1.0. Inserire gli identificativi ottenuti dalla guida. */
 window.EXPATS_CONFIG = Object.freeze({
+  adminEmail: 'g.macauda1980@gmail.com',
   version: 'v1.0',
   teamName: 'Expats F.C.',
   spreadsheetId: '13VzgnDyhlp8fXr8za4UVACNymPoR9WqYG5GWx-fyKZQ', // ID del foglio Google (tra /d/ e /edit nell'URL)
