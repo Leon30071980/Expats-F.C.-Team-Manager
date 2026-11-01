@@ -272,3 +272,19 @@ button,input,select,textarea{font-family:inherit}
   filter:none;
   mix-blend-mode:darken;
 }
+
+/* v1.21 — Opzione A: iframe Ultima partita e Prossima partita originali.
+   Non modificare in alcun modo le immagini e il contenuto di Tuttocampo.
+   Sui due widget lo sfondo interno resta quello deciso dalla fonte. */
+.league-embed-ultimapartita,.league-embed-prossimapartita {
+  filter:none!important;
+  -webkit-filter:none!important;
+  mix-blend-mode:normal!important;
+  opacity:1!important;
+  background:#fff!important;
+}
+.league-match-cards .league-embed-wrap {background:transparent;}
+.league-source-links{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+.league-source-links a{display:inline-flex;align-items:center;padding:8px 11px;background:#173b44;border:1px solid #367a74;border-radius:8px;color:#b0f5df;font-size:12px;font-weight:750;text-decoration:none}
+.league-source-links a:hover{border-color:#75e7bb}
+.league-import-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}
