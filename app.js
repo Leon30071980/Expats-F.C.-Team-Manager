@@ -1,4 +1,4 @@
-/* EXPATS F.C. TEAM MANAGER — v1.19
+/* EXPATS F.C. TEAM MANAGER — v1.22
  * Frontend statico GitHub Pages + Google Sheets API (edit via OAuth) + GViz JSONP (pubblico).
  * Il controllo delle modifiche dipende dai permessi Google Drive sul foglio.
  */
@@ -6,12 +6,12 @@
   'use strict';
   const CFG = window.EXPATS_CONFIG;
   const SHEETS = ['Giocatori','Stagioni','Partite','Distinte','Pregresso','Tesseramenti','Ruoli','Stati','CampionatoClassifica','CampionatoPartite','CampionatoWidget'];
-  const VERSION='v1.19';
+  const VERSION='v1.22';
   const state = {
     data: structuredClone(window.EXPATS_DEMO),
     source: 'demo', view: 'dashboard', seasonId: '', rosterScope: 'season',
     sort: {key:'number',dir:1}, search:'', filter:'TUTTI', leagueTab:'classifica',
-    token: '', sheetIds: {}, schemaReady:false, busy: false, inlineSaving:false, lastError: ''
+    token: '', accountEmail:'', sheetIds: {}, schemaReady:false, busy: false, inlineSaving:false, lastError: ''
   };
   const $ = (sel, root=document) => root.querySelector(sel);
   const el = (name, attrs={}) => Object.assign(document.createElement(name), attrs);
@@ -70,6 +70,28 @@
   const toast = (message, error=false) => { const root=$('#toast-root'); root.innerHTML=`<div class="toast ${error?'error':''}" role="status">${esc(message)}</div>`; setTimeout(()=>root.replaceChildren(),5500); };
   const safeError = error => String(error?.message||error||'Operazione non riuscita').slice(0,300);
   const editor = () => !!state.token;
+  // Solo l'account Google configurato può utilizzare la funzione Elimina.
+  // NOTA: è un controllo di interfaccia; la sicurezza dei dati dipende anche dai
+  // permessi di modifica del Google Sheet. Non condividerlo con altri editor.
+  const adminEmail=()=>String(CFG.adminEmail||'').trim().toLowerCase();
+  const canDeleteMatch=()=>editor() && !!adminEmail() && state.accountEmail===adminEmail();
+  async function verifyGoogleIdentity() {
+    if (!state.token) throw new Error('Accedi con Google per eliminare una partita.');
+    const result=await fetch('https://openidconnect.googleapis.com/v1/userinfo',{
+      headers:{Authorization:`Bearer ${state.token}`}
+    });
+    if (!result.ok) throw new Error('Impossibile verificare il tuo account Google. Esci e accedi nuovamente.');
+    const user=await result.json();
+    if(!user.email || user.email_verified===false)throw new Error('Indirizzo Google non verificato.');
+    return String(user.email).trim().toLowerCase();
+  }
+  async function requireMatchAdmin() {
+    if(!adminEmail())throw new Error('Configura adminEmail nel tuo config.js per abilitare la cancellazione.');
+    const email=await verifyGoogleIdentity();
+    state.accountEmail=email;
+    if(email!==adminEmail())throw new Error('Solo l’account amministratore configurato può eliminare partite.');
+    if(!state.schemaReady)throw new Error('Il database Google Sheets non è pronto.');
+  }
   // Calendario: dalla partita più vecchia alla più recente, a parità di data ordine stabile.
   const seasonMatches = id => state.data.matches.filter(m=>m.seasonId===id).sort((a,b)=>String(a.date).localeCompare(String(b.date))||String(a.id).localeCompare(String(b.id)));
   // La posizione dell'Expats F.C. e dei punteggi segue sempre Casa vs Trasferta.
@@ -306,7 +328,7 @@
       `<div class="toolbar"><button class="btn btn-secondary only-editor" data-action="manage-roles">🎨 Ruoli e colori</button><button class="btn btn-secondary only-editor" data-action="manage-states">🎨 Stati e colori</button><select id="roster-scope" class="filter-select" aria-label="Rosa della stagione"><option value="season" ${state.rosterScope==='season'?'selected':''}>Rosa stagione</option><option value="all" ${state.rosterScope==='all'?'selected':''}>Tutti i giocatori</option></select><input id="player-search" class="search" type="search" placeholder="Cerca per nome, maglia o ruolo..." value="${esc(state.search)}" aria-label="Cerca giocatore"><select id="status-filter" class="filter-select" aria-label="Filtra per stato"><option value="TUTTI" ${state.filter==='TUTTI'?'selected':''}>Tutti gli stati</option>${availableStates().map(item=>{const x=item.id;return `<option value="${x}" ${state.filter===x?'selected':''}>${statusText(x)}</option>`}).join('')}</select></div>
       <div class="table-shell"><table class="data-table roster-table"><thead><tr><th class="col-count" title="Numerazione progressiva delle righe visualizzate">N°</th><th class="sortable" data-sort="number" title="Numero di maglia">Maglia${state.sort.key==='number'?(state.sort.dir===1?' ↑':' ↓'):''}</th>${[['firstName','Nome'],['lastName','Cognome'],['role','Ruolo'],['status','Stato'],...(isAfterFirstSeason(state.seasonId)?[['seasons','Stagioni']]:[]),['called','Conv.'],['played','Pres.'],['goals','Gol'],['assists','Assist'],['yellow','Gialli'],['red','Rossi']].map(([k,label])=>`<th class="sortable" data-sort="${k}">${label}${state.sort.key===k?(state.sort.dir===1?' ↑':' ↓'):''}</th>`).join('')}</tr></thead><tbody id="players-tbody">${playersTable()}</tbody></table></div><p class="notice">N° = posizione progressiva nella tabella · Maglia = numero scelto dal giocatore; con ruoli misti due maglie (azzurra e arancione), ciascuna con numero stagionale indipendente. Le barre confrontano i valori della stessa colonna nella rosa visualizzata. I gol subiti sono negativi e senza barra; per i giocatori con ruoli da portiere e movimento sono sempre visibili due valori (es. 0 / −3), anche se i gol fatti sono zero. Clicca sulla matita accanto ai badge Ruolo o sul menu Stato per modificarli solo nella stagione scelta. Le maglie doppie (azzurra/arancione) si attivano per i ruoli misti anche se il catalogo contiene tipi statistici personalizzati. La colonna Ruolo si allarga per mostrare tutti i badge su un’unica riga. Per cambiare maglia, apri Modifica giocatore. Apri la scheda di un giocatore per rimuoverlo dalla rosa della stagione senza cancellarne lo storico. La colonna Stagioni appare dalla seconda stagione e conta solo quelle fino alla stagione scelta.</p>`;
   }
-  const matchLine = m=>{const f=fixture(m);return `<div class="result-line clickable" data-match="${esc(m.id)}"><div><div class="opponent">${esc(f.home)} <span class="muted">vs</span> ${esc(f.away)}</div><div class="meta">${localeDate(m.date)} · ${esc(m.venue==='T'?'Trasferta':'Casa')} · ${esc(m.competition||'Campionato')}${positiveInt(m.ownGoalsFor)?` · ${positiveInt(m.ownGoalsFor)} autogol a favore`:''}</div></div><div class="results-head"><span class="chip ${matchResult(m)==='W'?'success':matchResult(m)==='D'?'warning':'danger'}">${resultLabel(matchResult(m))}</span><span class="score">${f.homeGoals} : ${f.awayGoals}</span></div></div>`;};
+  const matchLine = m=>{const f=fixture(m);return `<div class="result-line clickable" data-match="${esc(m.id)}"><div><div class="opponent">${esc(f.home)} <span class="muted">vs</span> ${esc(f.away)}</div><div class="meta">${localeDate(m.date)} · ${esc(m.venue==='T'?'Trasferta':'Casa')} · ${esc(m.competition||'Campionato')}${positiveInt(m.ownGoalsFor)?` · ${positiveInt(m.ownGoalsFor)} autogol a favore`:''}</div></div><div class="results-head"><span class="chip ${matchResult(m)==='W'?'success':matchResult(m)==='D'?'warning':'danger'}">${resultLabel(matchResult(m))}</span><span class="score">${f.homeGoals} : ${f.awayGoals}</span>${canDeleteMatch()?`<button type="button" class="btn btn-danger btn-small match-delete-btn" data-action="delete-match" data-id="${esc(m.id)}" title="Elimina questa partita e la distinta" aria-label="Elimina partita contro ${esc(m.opponent)}">✕ Elimina</button>`:''}</div></div>`;};
   function renderMatches() {
     const s=activeSeason(), matches=seasonMatches(s.id),t=seasonTotals(s.id);
     return intro('CALENDARIO E RISULTATI','Partite della stagione',`Risultati e distinte archiviate · ${s.name}`,`<button class="btn btn-secondary only-editor" data-action="import-results">⇧ Importa risultati CSV</button>${newMatchButton()}`)+banner()+
@@ -528,7 +550,7 @@
     `<div class="two-cards"><div class="panel"><div class="panel-heading"><h2 class="panel-title">🔐 Stato connessione</h2></div><div class="breakdown"><div><span>Versione applicazione</span><strong>${VERSION}</strong></div><div><span>Origine dati</span><strong>${state.source==='drive'?'Google Drive':'Demo locale'}</strong></div><div><span>Modalità</span><strong>${editor()?'Google OAuth attivo':'Sola consultazione'}</strong></div><div><span>Archivio</span><strong>${CFG.spreadsheetId?'Configurato':'Da configurare'}</strong></div></div><p class="notice">Le autorizzazioni di scrittura non sono affidate al sito GitHub: le controlla Google tramite i permessi del foglio.</p></div>
       <div class="panel"><div class="panel-heading"><h2 class="panel-title">📂 Dove sono salvati i dati?</h2></div><p class="form-guide">Tutte le informazioni sono conservate in un unico Google Sheets nel tuo Drive, diviso in 11 schede.</p><div class="breakdown">${SHEETS.map(s=>`<div><span>${esc(s)}</span><strong>Google Sheets</strong></div>`).join('')}</div>${CFG.spreadsheetId?`<p><a target="_blank" rel="noopener noreferrer" href="https://docs.google.com/spreadsheets/d/${encodeURIComponent(CFG.spreadsheetId)}/edit">Apri archivio Google Sheets ↗</a></p>`:''}</div></div>
     <div class="panel mt-20"><div class="panel-heading"><h2 class="panel-title">🎨 Ruoli, stati e colori</h2></div><p class="form-guide">Personalizza ruoli e stati, compreso il colore di ciascuno. Il tipo Portiere resta un attributo dei ruoli. Le scelte sono memorizzate su Google Sheets e sono valide per tutti.</p><div class="intro-buttons"><button class="btn btn-secondary only-editor" data-action="manage-roles">Gestisci ruoli e colori</button><button class="btn btn-secondary only-editor" data-action="manage-states">Gestisci stati e colori</button></div><div class="catalog-overview">${availableRoles().map(x=>roleBadge(x.name)).join(' ')}${availableStates().map(x=>statusBadge(x.id)).join(' ')}</div></div>
-    <div class="panel mt-20"><div class="panel-heading"><h2 class="panel-title">🚀 Messa online</h2></div><div class="two-cards"><div class="info-step"><h3>1. Aggiorna il database esistente</h3><p>Solo se parti da una versione precedente alla v1.11 esegui <strong>aggiornaDatabaseV111</strong> in Apps Script: aggiunge le colonne per il ruolo partita e per distinguere gol fatti/subiti, preservando i dati. Da versioni precedenti alla v1.9 occorre prima aggiornare lo schema AutogolFavore.</p></div><div class="info-step"><h3>2. Conserva l’accesso Google</h3><p>Se l’app è già collegata a Google, non modificare <strong>config.js</strong> né l’ID client OAuth: rimangono validi.</p></div><div class="info-step"><h3>3. Aggiorna alla v1.21</h3><p>Se provieni dalla v1.20, sostituisci soltanto <strong>index.html, app.js e styles.css</strong>. Non serve modificare Google Sheets o Apps Script. Se invece provieni da versioni precedenti alla v1.16, esegui prima <strong>aggiornaDatabaseV116</strong>. Conserva config.js.</p></div><div class="info-step"><h3>4. Campionato storico 2025/26</h3><p>Seleziona 2025/26 → Campionato e collega i widget ufficiali del Girone B. I vecchi widget del Girone A sono esclusi. Per importare classifica e calendario in-app usa i pulsanti di importazione. Solo se vuoi registrare i risultati anche nelle partite interne della squadra, usa l’importazione CSV; i dati individuali storici non vengono modificati dai widget.</p></div></div><p class="notice mt-20">Per tutte le istruzioni operative, vedere il file LEGGIMI.md incluso nel progetto.</p></div>`;
+    <div class="panel mt-20"><div class="panel-heading"><h2 class="panel-title">🚀 Messa online</h2></div><div class="two-cards"><div class="info-step"><h3>1. Aggiorna il database esistente</h3><p>Solo se parti da una versione precedente alla v1.11 esegui <strong>aggiornaDatabaseV111</strong> in Apps Script: aggiunge le colonne per il ruolo partita e per distinguere gol fatti/subiti, preservando i dati. Da versioni precedenti alla v1.9 occorre prima aggiornare lo schema AutogolFavore.</p></div><div class="info-step"><h3>2. Proteggi l'accesso amministrativo</h3><p>Mantieni gli ID già funzionanti in <strong>config.js</strong> e aggiungi la proprietà <strong>adminEmail</strong> con la tua email Google. La cancellazione delle partite sarà disponibile soltanto dopo l'identificazione dell'account amministratore. Non condividere i permessi Editor del Google Sheet con altri utenti.</p></div><div class="info-step"><h3>3. Aggiorna alla v1.22</h3><p>Se provieni dalla v1.21, sostituisci <strong>index.html, app.js e styles.css</strong>, quindi aggiorna la proprietà adminEmail in config.js. Non serve modificare Google Sheets o Apps Script. Se provieni da versioni precedenti alla v1.16, esegui prima <strong>aggiornaDatabaseV116</strong>.</p></div><div class="info-step"><h3>4. Campionato storico 2025/26</h3><p>Seleziona 2025/26 → Campionato e collega i widget ufficiali del Girone B. I vecchi widget del Girone A sono esclusi. Per importare classifica e calendario in-app usa i pulsanti di importazione. Solo se vuoi registrare i risultati anche nelle partite interne della squadra, usa l’importazione CSV; i dati individuali storici non vengono modificati dai widget.</p></div></div><p class="notice mt-20">Per tutte le istruzioni operative, vedere il file LEGGIMI.md incluso nel progetto.</p></div>`;
   }
   function render() {
     if(!state.data.seasons.some(s=>s.id===state.seasonId)) state.seasonId=defaultSeason()?.id||'';
@@ -615,7 +637,55 @@
     const lines=state.data.lineups.filter(l=>l.matchId===id).sort((a,b)=>num(seasonPlayer(state.data.players.find(p=>p.id===a.playerId),m.seasonId)?.number)-num(seasonPlayer(state.data.players.find(p=>p.id===b.playerId),m.seasonId)?.number));
     const f=fixture(m);
     const body=`<div class="eyebrow">${localeDate(m.date)} · ${esc(m.competition||'Partita')}</div><h3 class="page-title" style="font-size:27px">${esc(f.home)} <span class="muted">vs</span> ${esc(f.away)} <span class="accent-green">${f.homeGoals} — ${f.awayGoals}</span></h3><p class="page-subtitle">${m.venue==='T'?'Trasferta':'Casa'} · ${resultLabel(matchResult(m))}</p>${positiveInt(m.ownGoalsFor)?`<p class="modal-explainer">⚽ Autogol a favore: <strong>${positiveInt(m.ownGoalsFor)}</strong> (non assegnati ai marcatori).</p>`:''}${m.notes?`<p class="modal-explainer">${esc(m.notes)}</p>`:''}<hr class="soft-rule"><h3 class="panel-title">Distinta e statistiche</h3><div class="table-shell mt-20"><table class="data-table" style="min-width:560px"><thead><tr><th>Giocatore</th><th>Ruolo partita</th><th>Conv.</th><th>Pres.</th><th>Gol</th><th>Assist</th><th>Gialli</th><th>Rossi</th></tr></thead><tbody>${lines.map(l=>{const p=state.data.players.find(p=>p.id===l.playerId);return `<tr><td>${esc(p?name(p):'Giocatore non trovato')}</td><td>${matchKeeper(l,m.seasonId)?'🧤 Portiere':'Movimento'}</td><td>${one(l.called)?'✓':'—'}</td><td>${one(l.played)?'✓':'—'}</td><td>${goalText(l)}</td><td>${positiveInt(l.assists)}</td><td>${positiveInt(l.yellow)}</td><td>${positiveInt(l.red)}</td></tr>`}).join('')}</tbody></table></div>${!lines.length?'<p class="form-guide">Nessuna distinta presente per questa partita. Puoi aggiungerla con Modifica partita e distinta.</p>':''}`;
-    modal(`Partita contro ${m.opponent}`,body,`<button class="btn btn-secondary" data-action="close-modal">Chiudi</button><button class="btn btn-primary only-editor" data-action="edit-match" data-id="${esc(m.id)}">Modifica partita e distinta</button>`,true);
+    modal(`Partita contro ${m.opponent}`,body,`<button class="btn btn-secondary" data-action="close-modal">Chiudi</button><button class="btn btn-primary only-editor" data-action="edit-match" data-id="${esc(m.id)}">Modifica partita e distinta</button>${canDeleteMatch()?`<button class="btn btn-danger" data-action="delete-match" data-id="${esc(m.id)}">✕ Elimina partita</button>`:''}`,true);
+  }
+  function deleteMatchConfirm(matchId) {
+    if(!canDeleteMatch()||state.busy||state.inlineSaving){
+      toast('La cancellazione è riservata all’account amministratore Google.',true);return;
+    }
+    const m=state.data.matches.find(x=>x.id===matchId);
+    if(!m)return toast('Partita non trovata. Aggiorna i dati.',true);
+    const f=fixture(m),lineups=state.data.lineups.filter(l=>l.matchId===m.id);
+    const body=`<div class="delete-match-summary">
+      <p><strong>${esc(f.home)} vs ${esc(f.away)}</strong> · ${f.homeGoals} : ${f.awayGoals}</p>
+      <p>${esc(localeDate(m.date))} · ${esc(state.data.seasons.find(s=>s.id===m.seasonId)?.name||m.seasonId)}</p>
+      <p>Verranno eliminate <strong>la partita</strong> e <strong>${lineups.length} righe della distinta</strong>.
+      I conteggi di partite giocate, vittorie, pareggi, sconfitte, gol subiti, autogol e statistiche individuali calcolate da questa distinta saranno aggiornati immediatamente.</p>
+      ${m.baselineAbsorbed?'<p><strong>Attenzione ai dati storici:</strong> le statistiche spostate in questa distinta dal Pregresso non saranno ripristinate automaticamente. Eliminando la partita verranno rimosse anche dai totali stagionali. I totali del Pregresso non verranno modificati.</p>':''}
+      <p>Questa operazione non è annullabile dall’app. Fai una copia del Google Sheet se vuoi conservarne una traccia.</p>
+    </div><label class="delete-match-check"><input type="checkbox" id="confirm-match-deletion"><span>Confermo di voler eliminare definitivamente questa partita e la sua distinta.</span></label>`;
+    modal('Elimina definitivamente la partita?',body,`<button class="btn btn-secondary" data-action="close-modal">Annulla</button><button class="btn btn-danger" id="confirm-delete-match-btn" data-action="confirm-delete-match" data-id="${esc(m.id)}" disabled>Elimina definitivamente</button>`);
+  }
+  // Un'unica richiesta batchUpdate elimina il risultato e tutte le sue distinte.
+  // Nessun ricalcolo manuale: statistiche e classifiche usano già le righe attive.
+  // Non restituiamo i valori al Pregresso: eliminare deve decrementare il totale
+  // degli eventi realmente registrati, anche per le partite storiche assorbite.
+  async function deleteMatch(matchId) {
+    if(!$('#confirm-match-deletion')?.checked){toast('Conferma la cancellazione della partita.',true);return;}
+    if(state.busy||state.inlineSaving)return;
+    try {await requireMatchAdmin();}catch(e){toast(safeError(e),true);return;}
+    const old=state.data.matches.find(m=>m.id===matchId);
+    if(!old){toast('Partita non trovata. Ricarica la pagina.',true);return;}
+    const oldLines=state.data.lineups.filter(l=>l.matchId===matchId);
+    const oldSignature=JSON.stringify({match:old,lineups:oldLines});
+    const saved=await withBusy(async()=>{
+      // Lettura fresca prima di cancellare righe per prevenire indici obsoleti.
+      const fresh=await loadPrivate();
+      const match=fresh.matches.find(m=>m.id===matchId);
+      const lines=fresh.lineups.filter(l=>l.matchId===matchId);
+      if(!match || JSON.stringify({match,lineups:lines})!==oldSignature)
+        throw new Error('La partita o la distinta sono cambiate su Drive. Aggiorna la pagina e riprova.');
+      const matchSheet=state.sheetIds.Partite,lineupSheet=state.sheetIds.Distinte;
+      if(matchSheet===undefined||lineupSheet===undefined)throw new Error('Schede Partite/Distinte non trovate.');
+      const rowDelete=(sheetId,row)=>({deleteDimension:{range:{sheetId,dimension:'ROWS',startIndex:row-1,endIndex:row}}});
+      const requests=[...lines].sort((a,b)=>b._row-a._row).map(l=>rowDelete(lineupSheet,l._row));
+      requests.push(rowDelete(matchSheet,match._row));
+      await googleAPI(':batchUpdate',{method:'POST',body:JSON.stringify({requests})});
+      // Aggiorna anche lo stato locale in caso di errore temporaneo del reload.
+      state.data.matches=state.data.matches.filter(m=>m.id!==matchId);
+      state.data.lineups=state.data.lineups.filter(l=>l.matchId!==matchId);
+    });
+    if(saved){state.seasonId=old.seasonId;navigate('matches');toast('Partita e relativa distinta eliminate. Statistiche aggiornate.');}
   }
   function editMatchForm(matchId) { matchForm(matchId); }
   function baselineForm(playerId) {
@@ -703,7 +773,7 @@
     };
     const rows=[labels,...playerRows().map((p,i)=>[i+1,...fields.map(k=>k==='seasons'?seasonsPlayed(p.id):k==='role'?rolesText(p.role):k==='goals'?rosterGoalText(p):p[k])])];
     const csv='\ufeff'+rows.map(row=>row.map(escapeCSV).join(';')).join('\r\n');
-    const blob=new Blob([csv],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=el('a',{href:url,download:`expats-fc-${state.seasonId}-v1.19.csv`});
+    const blob=new Blob([csv],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=el('a',{href:url,download:`expats-fc-${state.seasonId}-v1.22.csv`});
     document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),2000);toast('Classifica esportata in CSV.');
   }
   // --- Google Drive: lettura pubblica via Google Visualization JSONP ---
@@ -731,7 +801,7 @@
     const res=await fetch(url,{...options,headers:{Authorization:`Bearer ${state.token}`,...(options.body?{'Content-Type':'application/json'}:{}),...(options.headers||{})}});
     const body=await res.json().catch(()=>({}));
     if(!res.ok) {
-      if(res.status===401){state.token='';render();}
+      if(res.status===401){state.token='';state.accountEmail='';render();}
       throw new Error(body.error?.message||`Errore Google Sheets HTTP ${res.status}`);
     }
     return body;
@@ -791,21 +861,22 @@
   }
   async function auth() {
     if(editor()) {
-      const token=state.token;state.token='';state.sheetIds={};state.schemaReady=false;
+      const token=state.token;state.token='';state.accountEmail='';state.sheetIds={};state.schemaReady=false;
       try{window.google?.accounts.oauth2.revoke(token,()=>{});}catch(_){}
       await refreshData();toast('Sessione Google disconnessa.');return;
     }
     if(!CFG.googleClientId||!CFG.spreadsheetId){toast('Configura spreadsheetId e googleClientId nel file config.js.',true);navigate('settings');return;}
     if(!window.google?.accounts?.oauth2){toast('Il servizio di accesso Google non è disponibile: verifica la connessione o il blocco popup.',true);return;}
-    const client=google.accounts.oauth2.initTokenClient({client_id:CFG.googleClientId,scope:'https://www.googleapis.com/auth/spreadsheets',callback:async(response)=>{
+    const client=google.accounts.oauth2.initTokenClient({client_id:CFG.googleClientId,scope:'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email',callback:async(response)=>{
       if(response.error||!response.access_token){toast('Accesso Google non riuscito.',true);return;}
-      state.token=response.access_token;
+      state.token=response.access_token;state.accountEmail='';
       try {
+        state.accountEmail=await verifyGoogleIdentity().catch(()=> '');
         const meta=await googleAPI('?fields=sheets(properties(sheetId,title))');
         state.sheetIds=Object.fromEntries((meta.sheets||[]).map(s=>[s.properties.title,s.properties.sheetId]));
         if(SHEETS.some(n=>state.sheetIds[n]===undefined))throw new Error('Database Google Sheets non inizializzato: mancano alcune schede.');
         await refreshData();toast('Google connesso. La scrittura è consentita solo a chi ha permessi sul foglio.');
-      } catch(error){state.token='';toast(safeError(error),true);render();}
+      } catch(error){state.token='';state.accountEmail='';toast(safeError(error),true);render();}
     }});
     client.requestAccessToken({prompt:'select_account'});
   }
@@ -1265,6 +1336,8 @@
     else if(action==='new-season')seasonForm();
     else if(action==='edit-season')seasonForm(btn.dataset.id);
     else if(action==='edit-match')editMatchForm(btn.dataset.id);
+    else if(action==='delete-match')deleteMatchConfirm(btn.dataset.id);
+    else if(action==='confirm-delete-match')deleteMatch(btn.dataset.id).catch(e=>toast(safeError(e),true));
     else if(action==='edit-baseline')baselineForm(btn.dataset.id);
     else if(action==='save-baseline')saveBaseline(btn.dataset.id);
     else if(action==='import-results')importResultsForm();
@@ -1290,6 +1363,7 @@
         if(field)field.hidden=!dualKitNeeded(roles,section.dataset.playerId,section.dataset.seasonId);
       }
     }
+    if(event.target.id==='confirm-match-deletion'){const button=$('#confirm-delete-match-btn');if(button)button.disabled=!event.target.checked;}
     if(event.target.id==='season-select'){state.seasonId=event.target.value;render();}
     else if(event.target.id==='roster-scope'){state.rosterScope=event.target.value;$('#players-tbody').innerHTML=playersTable();}
     else if(event.target.id==='league-csv-file'){const file=event.target.files?.[0];if(file)file.text().then(text=>{const input=$('#league-csv-paste');if(input){input.value=text;state.leagueImport=null;$('#league-import-save').disabled=true;$('#league-import-preview').replaceChildren();}}).catch(e=>toast(safeError(e),true));}

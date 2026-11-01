@@ -288,3 +288,12 @@ button,input,select,textarea{font-family:inherit}
 .league-source-links a{display:inline-flex;align-items:center;padding:8px 11px;background:#173b44;border:1px solid #367a74;border-radius:8px;color:#b0f5df;font-size:12px;font-weight:750;text-decoration:none}
 .league-source-links a:hover{border-color:#75e7bb}
 .league-import-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}
+
+/* v1.22 — eliminazione partite, solo amministratore verificato */
+.match-delete-btn{white-space:nowrap;margin-left:8px;flex-shrink:0;background:#612c39;color:#fff;border-color:#aa5065}
+.match-delete-btn:hover{background:#85394a}
+.delete-match-summary{display:grid;gap:12px;border:1px solid #9c5867;background:#342230;border-radius:12px;padding:17px 18px;line-height:1.55}
+.delete-match-summary p{margin:0;color:#f4e6e9}
+.delete-match-check{margin-top:18px;display:flex;align-items:flex-start;gap:11px;line-height:1.5;color:#e3eaf4;font-size:15px;cursor:pointer}
+.delete-match-check input{margin-top:5px;accent-color:#d35f76;width:18px;height:18px;flex-shrink:0}
+@media(max-width:640px){.match-delete-btn{font-size:12px;padding:7px 9px}.results-head{flex-wrap:wrap;justify-content:flex-end}}
