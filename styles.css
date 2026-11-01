@@ -245,3 +245,12 @@ button,input,select,textarea{font-family:inherit}
 .league-credit{font-size:12px;color:#91a9c1;line-height:1.6;margin-top:13px}
 .league-widget-input{font:13px/1.5 Consolas,Monaco,monospace!important;min-height:76px;resize:vertical;overflow-wrap:anywhere}
 @media(max-width:700px){.league-embed{height:950px}.league-embed-partite{height:1160px}.league-embed-head{font-size:11px;flex-wrap:wrap}.league-embedded-panel{padding-left:10px;padding-right:10px}}
+
+
+/* v1.17 — Ultima e prossima partita dentro Campionato, griglia uniforme */
+.league-match-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-bottom:20px;align-items:stretch}
+.league-match-cards>.panel{margin:0;min-width:0}
+.league-match-cards .panel-heading{min-height:46px}
+.league-match-cards .panel-title{font-size:17px}
+.league-embed-ultimapartita,.league-embed-prossimapartita{height:440px}
+@media(max-width:840px){.league-match-cards{grid-template-columns:1fr}.league-embed-ultimapartita,.league-embed-prossimapartita{height:460px}}

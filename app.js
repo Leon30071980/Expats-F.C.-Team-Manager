@@ -1,4 +1,4 @@
-/* EXPATS F.C. TEAM MANAGER — v1.16
+/* EXPATS F.C. TEAM MANAGER — v1.17
  * Frontend statico GitHub Pages + Google Sheets API (edit via OAuth) + GViz JSONP (pubblico).
  * Il controllo delle modifiche dipende dai permessi Google Drive sul foglio.
  */
@@ -6,7 +6,7 @@
   'use strict';
   const CFG = window.EXPATS_CONFIG;
   const SHEETS = ['Giocatori','Stagioni','Partite','Distinte','Pregresso','Tesseramenti','Ruoli','Stati','CampionatoClassifica','CampionatoPartite','CampionatoWidget'];
-  const VERSION='v1.16';
+  const VERSION='v1.17';
   const state = {
     data: structuredClone(window.EXPATS_DEMO),
     source: 'demo', view: 'dashboard', seasonId: '', rosterScope: 'season',
@@ -327,25 +327,34 @@
     const batch=[...new Set(selected.map(r=>r.batch))].sort().at(-1);
     return {batch,rows:selected.filter(r=>r.batch===batch)};
   };
-  // Widget ufficiali Tuttocampo: URL verificati, mai incorporare codice HTML arbitrario.
-  const LEAGUE_WIDGET_TYPES=['Classifica','Risultati','Partite'];
+  // v1.17: quattro widget effettivamente disponibili: Classifica, Risultati,
+  // Ultima partita (URL ufficiale /Partita/) e Prossima partita.
+  // Manteniamo il tipo legacy 'Partite' leggibile, senza modificare il database.
+  const LEAGUE_WIDGET_TYPES=['Classifica','Risultati','UltimaPartita','ProssimaPartita','Partite'];
+  const LEAGUE_WIDGET_VISIBLE=['Classifica','Risultati','UltimaPartita','ProssimaPartita'];
+  const LEAGUE_WIDGET_LABELS={Classifica:'Classifica',Risultati:'Risultati',UltimaPartita:'Ultima partita',ProssimaPartita:'Prossima partita',Partite:'Partite (vecchio widget)'};
   function leagueWidgetUrl(raw,kind='') {
     let value=String(raw||'').trim();
     if(!value)return '';
-    // Accetta sia il link diretto sia il codice iframe fornito dal generatore Tuttocampo.
     const src=value.match(/\bsrc\s*=\s*["']([^"']+)["']/i);
     if(src)value=src[1].replace(/&amp;/gi,'&');
     let url;
-    try{url=new URL(value);}catch(_){throw new Error('Inserisci il link del widget Tuttocampo oppure il suo codice iframe.');}
-    if(url.protocol!=='https:'||!['www.tuttocampo.it','tuttocampo.it'].includes(url.hostname))
-      throw new Error('Sono accettati soltanto widget HTTPS del dominio tuttocampo.it.');
-    const match=url.pathname.match(/^\/(Widget|WidgetV2)\/(Classifica|Risultati|Partite|Calendario)\/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\/?$/i);
-    if(!match)throw new Error('Il collegamento non è un widget Tuttocampo valido (Classifica, Risultati o Partite).');
-    const normalized=match[2].toLowerCase();
-    if(kind && normalized!==kind.toLowerCase() && !(kind==='Partite' && normalized==='calendario'))
-      throw new Error(`Il campo ${kind} richiede il widget ${kind} del girone, non ${match[2]}.`);
-    // Scarta query-string, frammenti e parametri non previsti.
-    return `https://www.tuttocampo.it/${match[1]}/${match[2]}/${match[3]}`;
+    try{url=new URL(value);}catch(_){throw new Error('Incolla il link del widget Tuttocampo oppure il codice iframe.');}
+    if(url.protocol!=='https:'||!['www.tuttocampo.it','tuttocampo.it','b-static.tuttocampo.it'].includes(url.hostname)||url.username||url.password)
+      throw new Error('Sono ammessi soltanto widget HTTPS ufficiali di Tuttocampo.');
+    // Su alcune configurazioni la fonte aggiunge una variante numerica e ?y=AAAA-AA.
+    const match=url.pathname.match(/^\/(Widget|WidgetV2)\/(Classifica|Risultati|Partita|UltimaPartita|ProssimaPartita|Partite|Calendario)\/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})(?:\/(\d{1,2}))?\/?$/i);
+    if(!match)throw new Error('Il codice non corrisponde a un widget Tuttocampo riconosciuto.');
+    const actual=match[2].toLowerCase();
+    const expected={Classifica:['classifica'],Risultati:['risultati'],UltimaPartita:['partita','ultimapartita'],ProssimaPartita:['prossimapartita'],Partite:['partite','calendario']};
+    if(kind && !(expected[kind]||[]).includes(actual))
+      throw new Error(`Il campo ${LEAGUE_WIDGET_LABELS[kind]||kind} non può usare il widget ${match[2]}.`);
+    if([...url.searchParams.keys()].some(k=>k!=='y')||url.searchParams.getAll('y').length>1||url.hash)
+      throw new Error('Il link contiene parametri non previsti dal widget.');
+    const year=url.searchParams.get('y');
+    if(year && !/^20\d{2}-\d{2}$/.test(year))throw new Error('Il parametro stagione del widget non è valido.');
+    const fixed=`https://${url.hostname}/${match[1]}/${match[2]}/${match[3]}`+(match[4]?`/${match[4]}`:'');
+    return fixed+(year?`?y=${year}`:'');
   }
   const getLeagueWidget=(sid,type)=>{
     const entry=(state.data.leagueWidgets||[]).find(x=>x.seasonId===sid&&x.type===type);
@@ -359,8 +368,10 @@
     const fixtureRows=[...fixtures.rows].sort((a,b)=>String(a.date).localeCompare(String(b.date))||num(a.round)-num(b.round)||a.home.localeCompare(b.home,'it'));
     const widgetClassifica=getLeagueWidget(season.id,'Classifica');
     const widgetRisultati=getLeagueWidget(season.id,'Risultati');
-    const widgetPartite=getLeagueWidget(season.id,'Partite');
-    const widgetMode=!!(widgetClassifica||widgetRisultati||widgetPartite);
+    const widgetPartite=getLeagueWidget(season.id,'Partite'); // widget legacy (non configurato nelle nuove installazioni)
+    const widgetUltima=getLeagueWidget(season.id,'UltimaPartita');
+    const widgetProssima=getLeagueWidget(season.id,'ProssimaPartita');
+    const widgetMode=!!(widgetClassifica||widgetRisultati||widgetUltima||widgetProssima||widgetPartite);
     const heading=intro('CSI PARMA · CALCIO A 7 OPEN B · GIRONE A','Campionato',`Classifica, calendario e risultati · ${season.name}`,
       `<button class="btn btn-primary only-editor" data-action="league-widgets">⚙ Collega widget</button>`);
     const sourcePanel=widgetMode?
@@ -373,21 +384,28 @@
       const body=standingsRows.length?`<div class="table-shell"><table class="data-table league-table"><thead><tr><th>POS.</th><th>Squadra</th><th>PG</th><th>V</th><th>N</th><th>P</th><th>GF</th><th>GS</th><th>DR</th><th>PT</th></tr></thead><tbody>${standingsRows.map((r,i)=>`<tr class="${/expats\s*f\.?c\.?/i.test(r.team)?'league-expats':''}"><td class="league-rank">${i+1}</td><td class="league-team">${esc(r.team)}</td><td>${r.pg}</td><td>${r.win}</td><td>${r.draw}</td><td>${r.loss}</td><td>${r.gf}</td><td>${r.ga}</td><td>${r.gf-r.ga}</td><td class="league-points">${esc(r.pts)}</td></tr>`).join('')}</tbody></table></div>`:empty('🏆','Classifica non ancora collegata','Collega il widget Classifica del girone per visualizzare i dati automaticamente qui dentro.');
       return heading+banner()+sourcePanel+tabs+`<div class="panel"><div class="panel-heading"><div><h2 class="panel-title">Classifica · ${esc(season.name)}</h2><span class="panel-caption">${standingsRows.length} squadre · Ultima importazione: ${leagueStamp(standings.batch)}</span></div><button class="btn btn-secondary only-editor" data-action="league-import" data-kind="classifica">⇧ CSV</button></div>${body}</div>`+sourceCredit;
     }
-    if(widgetPartite||widgetRisultati){
+    if(widgetRisultati||widgetUltima||widgetProssima||widgetPartite){
       const parts=[];
+      const gameCards=[];
+      if(widgetUltima)gameCards.push(`<div class="panel league-embedded-panel"><div class="panel-heading"><h2 class="panel-title">Ultima partita · ${esc(season.name)}</h2></div>${embedLeagueWidget(widgetUltima,'Ultima partita CSI Parma '+season.name,'UltimaPartita')}</div>`);
+      if(widgetProssima)gameCards.push(`<div class="panel league-embedded-panel"><div class="panel-heading"><h2 class="panel-title">Prossima partita · ${esc(season.name)}</h2></div>${embedLeagueWidget(widgetProssima,'Prossima partita CSI Parma '+season.name,'ProssimaPartita')}</div>`);
+      if(gameCards.length)parts.push(`<div class="league-match-cards">${gameCards.join('')}</div>`);
       if(widgetRisultati)parts.push(`<div class="panel league-embedded-panel"><div class="panel-heading"><h2 class="panel-title">Risultati · ${esc(season.name)}</h2></div>${embedLeagueWidget(widgetRisultati,'Risultati CSI Parma '+season.name,'Risultati')}</div>`);
-      if(widgetPartite)parts.push(`<div class="panel league-embedded-panel"><div class="panel-heading"><h2 class="panel-title">Calendario e partite · ${esc(season.name)}</h2></div>${embedLeagueWidget(widgetPartite,'Partite CSI Parma '+season.name,'Partite')}</div>`);
+      if(widgetPartite)parts.push(`<div class="panel league-embedded-panel"><div class="panel-heading"><h2 class="panel-title">Partite (widget precedente) · ${esc(season.name)}</h2></div>${embedLeagueWidget(widgetPartite,'Partite CSI Parma '+season.name,'Partite')}</div>`);
       return heading+banner()+sourcePanel+tabs+parts.join('')+sourceCredit;
     }
-    const rows=fixtureRows.length?`<div class="table-shell"><table class="data-table league-table"><thead><tr><th>Giornata</th><th>Data</th><th>Casa</th><th>Risultato</th><th>Trasferta</th></tr></thead><tbody>${fixtureRows.map(r=>`<tr class="${/expats\s*f\.?c\.?/i.test(r.home+' '+r.away)?'league-expats':''}"><td>${esc(r.round||'—')}</td><td>${r.date?esc(localeDate(r.date)):'Da definire'}</td><td class="league-team">${esc(r.home)}</td><td class="league-score">${r.hg===null||r.ag===null?'–':`${r.hg} – ${r.ag}`}</td><td class="league-team">${esc(r.away)}</td></tr>`).join('')}</tbody></table></div>`:empty('📅','Calendario non ancora collegato','Collega il widget Risultati e/o Partite del girone per visualizzare il campionato automaticamente qui dentro.');
+    const rows=fixtureRows.length?`<div class="table-shell"><table class="data-table league-table"><thead><tr><th>Giornata</th><th>Data</th><th>Casa</th><th>Risultato</th><th>Trasferta</th></tr></thead><tbody>${fixtureRows.map(r=>`<tr class="${/expats\s*f\.?c\.?/i.test(r.home+' '+r.away)?'league-expats':''}"><td>${esc(r.round||'—')}</td><td>${r.date?esc(localeDate(r.date)):'Da definire'}</td><td class="league-team">${esc(r.home)}</td><td class="league-score">${r.hg===null||r.ag===null?'–':`${r.hg} – ${r.ag}`}</td><td class="league-team">${esc(r.away)}</td></tr>`).join('')}</tbody></table></div>`:empty('📅','Calendario non ancora collegato','Collega il widget Risultati, Ultima partita o Prossima partita per visualizzare gli incontri direttamente qui.');
     return heading+banner()+sourcePanel+tabs+`<div class="panel"><div class="panel-heading"><div><h2 class="panel-title">Calendario e risultati · ${esc(season.name)}</h2><span class="panel-caption">${fixtureRows.length} incontri · Ultima importazione: ${leagueStamp(fixtures.batch)}</span></div><button class="btn btn-secondary only-editor" data-action="league-import" data-kind="calendario">⇧ CSV</button></div>${rows}</div>`+sourceCredit;
   }
   function leagueWidgetsDialog(){
     if(!editor())return;
     const season=activeSeason();
-    const widgets=Object.fromEntries(LEAGUE_WIDGET_TYPES.map(type=>[type,getLeagueWidget(season.id,type)]));
-    const fields=LEAGUE_WIDGET_TYPES.map(type=>`<div class="field"><label for="league-widget-${type}">Widget ${type}</label><textarea id="league-widget-${type}" class="form-control league-widget-input" rows="2" spellcheck="false" placeholder="Incolla l'indirizzo https://www.tuttocampo.it/WidgetV2/${type}/... oppure il codice iframe">${esc(widgets[type])}</textarea></div>`).join('');
-    modal('Collega i widget ufficiali del campionato',`<div class="modal-explainer">Stagione <strong>${esc(season.name)}</strong>. Sul sito Tuttocampo apri il girone CSI Parma, vai alla funzione <strong>Widget / API</strong> e copia i codici per <strong>Classifica</strong>, <strong>Risultati</strong> e <strong>Partite</strong> dello stesso girone. Incollali qui. È sufficiente farlo una volta per stagione: tutti i visitatori vedranno i dati dentro Expats F.C.</div><div class="field-grid">${fields}</div><p class="notice">Accettiamo soltanto widget ufficiali di tuttocampo.it; non incollare l'URL della pagina generale del campionato, perché non è un widget. Lascia vuoto un campo se non è disponibile. Non vengono importate automaticamente le statistiche dei giocatori.</p>`,
+    const types=[...LEAGUE_WIDGET_VISIBLE];
+    // Permetti ancora di modificare eventuali widget Partite già configurati prima della v1.17.
+    if((state.data.leagueWidgets||[]).some(x=>x.seasonId===season.id&&x.type==='Partite'))types.push('Partite');
+    const widgets=Object.fromEntries(types.map(type=>[type,getLeagueWidget(season.id,type)]));
+    const fields=types.map(type=>`<div class="field"><label for="league-widget-${type}">Widget ${LEAGUE_WIDGET_LABELS[type]}</label><textarea id="league-widget-${type}" class="form-control league-widget-input" rows="2" spellcheck="false" placeholder="Incolla il codice iframe o il link del widget ${LEAGUE_WIDGET_LABELS[type]}">${esc(widgets[type])}</textarea></div>`).join('');
+    modal('Collega i widget ufficiali del campionato',`<div class="modal-explainer">Stagione <strong>${esc(season.name)}</strong>. Incolla i codici ufficiali per <strong>Classifica</strong>, <strong>Risultati</strong>, <strong>Ultima partita</strong> e <strong>Prossima partita</strong>. Il widget Ultima partita può avere un indirizzo <code>/WidgetV2/Partita/…</code>. I codici già collegati vengono mantenuti: non devi reinserirli.</div><div class="field-grid">${fields}</div><p class="notice">Collega soltanto i widget del campionato o della squadra corretti. Sono ammessi esclusivamente gli indirizzi ufficiali Tuttocampo. Le statistiche dei giocatori non vengono modificate.</p>`,
     `<button class="btn btn-primary" data-action="league-widgets-save">Salva collegamenti su Google Drive</button>`,true);
   }
   async function leagueWidgetsSave(){
@@ -396,8 +414,9 @@
     const rows=[];
     try {
       for(const type of LEAGUE_WIDGET_TYPES){
-        const source=document.getElementById('league-widget-'+type)?.value||'';
-        rows.push({type,url:leagueWidgetUrl(source,type)});
+        const input=document.getElementById('league-widget-'+type);
+        if(!input)continue; // Il campo legacy non viene sovrascritto se non compare.
+        rows.push({type,url:leagueWidgetUrl(input.value,type)});
       }
     }catch(err){toast(safeError(err),true);return;}
     const operations=rows.map(r=>{
@@ -489,7 +508,7 @@
     `<div class="two-cards"><div class="panel"><div class="panel-heading"><h2 class="panel-title">🔐 Stato connessione</h2></div><div class="breakdown"><div><span>Versione applicazione</span><strong>${VERSION}</strong></div><div><span>Origine dati</span><strong>${state.source==='drive'?'Google Drive':'Demo locale'}</strong></div><div><span>Modalità</span><strong>${editor()?'Google OAuth attivo':'Sola consultazione'}</strong></div><div><span>Archivio</span><strong>${CFG.spreadsheetId?'Configurato':'Da configurare'}</strong></div></div><p class="notice">Le autorizzazioni di scrittura non sono affidate al sito GitHub: le controlla Google tramite i permessi del foglio.</p></div>
       <div class="panel"><div class="panel-heading"><h2 class="panel-title">📂 Dove sono salvati i dati?</h2></div><p class="form-guide">Tutte le informazioni sono conservate in un unico Google Sheets nel tuo Drive, diviso in 11 schede.</p><div class="breakdown">${SHEETS.map(s=>`<div><span>${esc(s)}</span><strong>Google Sheets</strong></div>`).join('')}</div>${CFG.spreadsheetId?`<p><a target="_blank" rel="noopener noreferrer" href="https://docs.google.com/spreadsheets/d/${encodeURIComponent(CFG.spreadsheetId)}/edit">Apri archivio Google Sheets ↗</a></p>`:''}</div></div>
     <div class="panel mt-20"><div class="panel-heading"><h2 class="panel-title">🎨 Ruoli, stati e colori</h2></div><p class="form-guide">Personalizza ruoli e stati, compreso il colore di ciascuno. Il tipo Portiere resta un attributo dei ruoli. Le scelte sono memorizzate su Google Sheets e sono valide per tutti.</p><div class="intro-buttons"><button class="btn btn-secondary only-editor" data-action="manage-roles">Gestisci ruoli e colori</button><button class="btn btn-secondary only-editor" data-action="manage-states">Gestisci stati e colori</button></div><div class="catalog-overview">${availableRoles().map(x=>roleBadge(x.name)).join(' ')}${availableStates().map(x=>statusBadge(x.id)).join(' ')}</div></div>
-    <div class="panel mt-20"><div class="panel-heading"><h2 class="panel-title">🚀 Messa online</h2></div><div class="two-cards"><div class="info-step"><h3>1. Aggiorna il database esistente</h3><p>Solo se parti da una versione precedente alla v1.11 esegui <strong>aggiornaDatabaseV111</strong> in Apps Script: aggiunge le colonne per il ruolo partita e per distinguere gol fatti/subiti, preservando i dati. Da versioni precedenti alla v1.9 occorre prima aggiornare lo schema AutogolFavore.</p></div><div class="info-step"><h3>2. Conserva l’accesso Google</h3><p>Se l’app è già collegata a Google, non modificare <strong>config.js</strong> né l’ID client OAuth: rimangono validi.</p></div><div class="info-step"><h3>3. Aggiorna alla v1.16</h3><p>Esegui <strong>aggiornaDatabaseV116</strong> in Apps Script, poi sostituisci <strong>index.html, app.js, styles.css e demo.js</strong>. Le nuove schede Campionato non modificano la rosa, le partite o le statistiche Expats. Conserva config.js.</p></div><div class="info-step"><h3>4. Importa risultati 2025/26</h3><p>Seleziona 2025/26 → Partite e risultati → Importa risultati CSV. Puoi modificare risultato e distinta cliccando una partita; le statistiche già nel pregresso possono essere assorbite senza duplicazioni.</p></div></div><p class="notice mt-20">Per tutte le istruzioni operative, vedere il file LEGGIMI.md incluso nel progetto.</p></div>`;
+    <div class="panel mt-20"><div class="panel-heading"><h2 class="panel-title">🚀 Messa online</h2></div><div class="two-cards"><div class="info-step"><h3>1. Aggiorna il database esistente</h3><p>Solo se parti da una versione precedente alla v1.11 esegui <strong>aggiornaDatabaseV111</strong> in Apps Script: aggiunge le colonne per il ruolo partita e per distinguere gol fatti/subiti, preservando i dati. Da versioni precedenti alla v1.9 occorre prima aggiornare lo schema AutogolFavore.</p></div><div class="info-step"><h3>2. Conserva l’accesso Google</h3><p>Se l’app è già collegata a Google, non modificare <strong>config.js</strong> né l’ID client OAuth: rimangono validi.</p></div><div class="info-step"><h3>3. Aggiorna alla v1.17</h3><p>Se provieni dalla v1.16, sostituisci soltanto <strong>index.html, app.js e styles.css</strong>. Non serve modificare Google Sheets o Apps Script. Se invece provieni da versioni precedenti alla v1.16, esegui prima <strong>aggiornaDatabaseV116</strong>. Conserva config.js.</p></div><div class="info-step"><h3>4. Importa risultati 2025/26</h3><p>Seleziona 2025/26 → Partite e risultati → Importa risultati CSV. Puoi modificare risultato e distinta cliccando una partita; le statistiche già nel pregresso possono essere assorbite senza duplicazioni.</p></div></div><p class="notice mt-20">Per tutte le istruzioni operative, vedere il file LEGGIMI.md incluso nel progetto.</p></div>`;
   }
   function render() {
     if(!state.data.seasons.some(s=>s.id===state.seasonId)) state.seasonId=defaultSeason()?.id||'';
