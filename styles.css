@@ -233,3 +233,15 @@ button,input,select,textarea{font-family:inherit}
 .league-source strong{font-family:'Exo 2';font-size:16px;color:#8cf1ce}.league-source p{color:#a6c6d0;font-size:13px;line-height:1.6;margin:6px 0 0;max-width:700px}
 .league-source .chip{white-space:nowrap}.league-tabs{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}.league-tabs button{font-family:'Exo 2';font-weight:800;font-size:14px;border:1px solid #2b4360;color:#b4cee5;background:#16283e;padding:12px 20px;border-radius:10px;cursor:pointer}.league-tabs button.selected{background:#145a50;color:#adfbe1;border-color:#2aba88}.league-table{min-width:770px}.league-table th,.league-table td{font-size:13px}.league-team{font-weight:800}.league-rank{font-weight:900;color:#8cb8e5}.league-points{font-weight:900;color:#6ce2ae}.league-score{white-space:nowrap;font-size:16px;font-weight:900;color:#e5f2fc}.league-table tr.league-expats td{background:#143a3f!important}.league-table tr.league-expats .league-team{color:#7bf0c3}.league-import-ok{border-radius:8px;background:#154d3b;border:1px solid #34765b;padding:12px;color:#a9fbd9}.league-source+.league-tabs+.panel{margin-top:0}
 @media(max-width:640px){.league-source{align-items:flex-start;flex-direction:column;padding:15px}.league-tabs button{flex:1;padding:11px 8px;font-size:12px}.league-source p{font-size:12px}}
+
+/* v1.16 — Campionato incorporato */
+.league-embedded-panel{padding-bottom:18px}
+.league-embed-wrap{border:1px solid #2a4865;border-radius:13px;overflow:hidden;background:#fff;color:#163043;margin-top:14px}
+.league-embed-head{display:flex;align-items:center;justify-content:space-between;gap:10px;background:#152f45;color:#b8cfe6;padding:11px 16px;font-size:12px;font-weight:700}
+.league-embed-mark{color:#7eebc0}
+.league-embed{display:block;width:100%;height:1050px;border:0;background:#fff}
+.league-embed-risultati{height:760px}
+.league-embed-partite{height:1200px}
+.league-credit{font-size:12px;color:#91a9c1;line-height:1.6;margin-top:13px}
+.league-widget-input{font:13px/1.5 Consolas,Monaco,monospace!important;min-height:76px;resize:vertical;overflow-wrap:anywhere}
+@media(max-width:700px){.league-embed{height:950px}.league-embed-partite{height:1160px}.league-embed-head{font-size:11px;flex-wrap:wrap}.league-embedded-panel{padding-left:10px;padding-right:10px}}

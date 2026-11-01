@@ -33,6 +33,7 @@ window.EXPATS_DEMO = {
   matches: [],
   leagueStandings: [],
   leagueFixtures: [],
+  leagueWidgets: [],
   lineups: [],
   baseline: [
     ['p1',18,17,-57,0,0,0],['p2',7,7,3,1,0,0],['p3',0,0,0,0,0,0],

@@ -1,12 +1,12 @@
-/* EXPATS F.C. TEAM MANAGER — v1.15
+/* EXPATS F.C. TEAM MANAGER — v1.16
  * Frontend statico GitHub Pages + Google Sheets API (edit via OAuth) + GViz JSONP (pubblico).
  * Il controllo delle modifiche dipende dai permessi Google Drive sul foglio.
  */
 (() => {
   'use strict';
   const CFG = window.EXPATS_CONFIG;
-  const SHEETS = ['Giocatori','Stagioni','Partite','Distinte','Pregresso','Tesseramenti','Ruoli','Stati','CampionatoClassifica','CampionatoPartite'];
-  const VERSION='v1.15';
+  const SHEETS = ['Giocatori','Stagioni','Partite','Distinte','Pregresso','Tesseramenti','Ruoli','Stati','CampionatoClassifica','CampionatoPartite','CampionatoWidget'];
+  const VERSION='v1.16';
   const state = {
     data: structuredClone(window.EXPATS_DEMO),
     source: 'demo', view: 'dashboard', seasonId: '', rosterScope: 'season',
@@ -327,21 +327,85 @@
     const batch=[...new Set(selected.map(r=>r.batch))].sort().at(-1);
     return {batch,rows:selected.filter(r=>r.batch===batch)};
   };
+  // Widget ufficiali Tuttocampo: URL verificati, mai incorporare codice HTML arbitrario.
+  const LEAGUE_WIDGET_TYPES=['Classifica','Risultati','Partite'];
+  function leagueWidgetUrl(raw,kind='') {
+    let value=String(raw||'').trim();
+    if(!value)return '';
+    // Accetta sia il link diretto sia il codice iframe fornito dal generatore Tuttocampo.
+    const src=value.match(/\bsrc\s*=\s*["']([^"']+)["']/i);
+    if(src)value=src[1].replace(/&amp;/gi,'&');
+    let url;
+    try{url=new URL(value);}catch(_){throw new Error('Inserisci il link del widget Tuttocampo oppure il suo codice iframe.');}
+    if(url.protocol!=='https:'||!['www.tuttocampo.it','tuttocampo.it'].includes(url.hostname))
+      throw new Error('Sono accettati soltanto widget HTTPS del dominio tuttocampo.it.');
+    const match=url.pathname.match(/^\/(Widget|WidgetV2)\/(Classifica|Risultati|Partite|Calendario)\/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\/?$/i);
+    if(!match)throw new Error('Il collegamento non è un widget Tuttocampo valido (Classifica, Risultati o Partite).');
+    const normalized=match[2].toLowerCase();
+    if(kind && normalized!==kind.toLowerCase() && !(kind==='Partite' && normalized==='calendario'))
+      throw new Error(`Il campo ${kind} richiede il widget ${kind} del girone, non ${match[2]}.`);
+    // Scarta query-string, frammenti e parametri non previsti.
+    return `https://www.tuttocampo.it/${match[1]}/${match[2]}/${match[3]}`;
+  }
+  const getLeagueWidget=(sid,type)=>{
+    const entry=(state.data.leagueWidgets||[]).find(x=>x.seasonId===sid&&x.type===type);
+    try{return leagueWidgetUrl(entry?.url||'',type);}catch(_){return '';}
+  };
+  const embedLeagueWidget=(url,title,type)=>`<div class="league-embed-wrap"><div class="league-embed-head"><span class="league-embed-mark">Dati Tuttocampo</span><span>Aggiornamento gestito dalla fonte</span></div><iframe class="league-embed league-embed-${type.toLowerCase()}" src="${esc(url)}" title="${esc(title)}" loading="lazy" sandbox="allow-scripts allow-same-origin allow-popups" referrerpolicy="strict-origin-when-cross-origin"></iframe></div>`;
   const leagueStamp=batch=>batch?new Date(batch).toLocaleString('it-IT',{dateStyle:'medium',timeStyle:'short'}):'Nessuna importazione';
   function renderLeague() {
     const season=activeSeason(),standings=leagueLatest(state.data.leagueStandings,season.id),fixtures=leagueLatest(state.data.leagueFixtures,season.id);
     const standingsRows=[...standings.rows].sort((a,b)=>b.pts-a.pts||(b.gf-b.ga)-(a.gf-a.ga)||b.gf-a.gf||a.team.localeCompare(b.team,'it'));
     const fixtureRows=[...fixtures.rows].sort((a,b)=>String(a.date).localeCompare(String(b.date))||num(a.round)-num(b.round)||a.home.localeCompare(b.home,'it'));
-    const source=`<a class="btn btn-secondary" href="${LEAGUE_SOURCE}" target="_blank" rel="noopener noreferrer">Apri Tuttocampo ↗</a>`;
-    const heading=intro('CSI PARMA · CALCIO A 7 OPEN B · GIRONE A','Campionato',`Classifica, calendario e risultati · ${season.name}`,source);
-    const sourcePanel=`<div class="league-source"><div><strong>Fonte di riferimento: Tuttocampo</strong><p>Questa pagina usa i dati importati nel tuo Google Sheets: non è collegata automaticamente a Tuttocampo. Consulta la fonte per le classifiche ufficiali e aggiorna l'archivio quando necessario.</p></div><span class="chip neutral">Aggiornamento manuale</span></div>`;
+    const widgetClassifica=getLeagueWidget(season.id,'Classifica');
+    const widgetRisultati=getLeagueWidget(season.id,'Risultati');
+    const widgetPartite=getLeagueWidget(season.id,'Partite');
+    const widgetMode=!!(widgetClassifica||widgetRisultati||widgetPartite);
+    const heading=intro('CSI PARMA · CALCIO A 7 OPEN B · GIRONE A','Campionato',`Classifica, calendario e risultati · ${season.name}`,
+      `<button class="btn btn-primary only-editor" data-action="league-widgets">⚙ Collega widget</button>`);
+    const sourcePanel=widgetMode?
+      `<div class="league-source"><div><strong>Campionato integrato</strong><p>I widget ufficiali mostrano i dati all'interno di Expats F.C. Gli aggiornamenti dipendono da Tuttocampo; la stagione è configurata separatamente.</p></div><span class="chip success">Widget collegati</span></div>`:
+      `<div class="league-source"><div><strong>Campionato nella tua app</strong><p>Per visualizzare qui la classifica e le partite sempre aggiornate, collega una sola volta i widget ufficiali del girone dal pulsante “Collega widget”. In alternativa puoi usare le importazioni CSV già disponibili.</p></div><span class="chip neutral">Fonte da collegare</span></div>`;
     const tabs=`<div class="league-tabs" role="tablist" aria-label="Sezioni campionato"><button type="button" role="tab" aria-selected="${state.leagueTab==='classifica'}" class="${state.leagueTab==='classifica'?'selected':''}" data-action="league-tab" data-tab="classifica">Classifica</button><button type="button" role="tab" aria-selected="${state.leagueTab==='calendario'}" class="${state.leagueTab==='calendario'?'selected':''}" data-action="league-tab" data-tab="calendario">Calendario e risultati</button></div>`;
+    const sourceCredit=`<p class="league-credit">Fonte dei widget: Tuttocampo. I dati visualizzati nel riquadro esterno sono gestiti dalla fonte, non vengono copiati nelle statistiche dei giocatori. Se un widget non carica, verifica il codice di incorporamento fornito da Tuttocampo.</p>`;
     if(state.leagueTab==='classifica'){
-      const body=standingsRows.length?`<div class="table-shell"><table class="data-table league-table"><thead><tr><th>POS.</th><th>Squadra</th><th>PG</th><th>V</th><th>N</th><th>P</th><th>GF</th><th>GS</th><th>DR</th><th>PT</th></tr></thead><tbody>${standingsRows.map((r,i)=>`<tr class="${/expats\s*f\.?c\.?/i.test(r.team)?'league-expats':''}"><td class="league-rank">${i+1}</td><td class="league-team">${esc(r.team)}</td><td>${r.pg}</td><td>${r.win}</td><td>${r.draw}</td><td>${r.loss}</td><td>${r.gf}</td><td>${r.ga}</td><td>${r.gf-r.ga}</td><td class="league-points">${esc(r.pts)}</td></tr>`).join('')}</tbody></table></div>`:empty('🏆','Classifica da importare','Accedi con Google e importa i dati del girone. Non vengono mostrati punteggi inventati.');
-      return heading+banner()+sourcePanel+tabs+`<div class="panel"><div class="panel-heading"><div><h2 class="panel-title">Classifica · ${esc(season.name)}</h2><span class="panel-caption">${standingsRows.length} squadre · Ultima importazione: ${leagueStamp(standings.batch)}</span></div><button class="btn btn-primary only-editor" data-action="league-import" data-kind="classifica">⇧ Importa classifica CSV</button></div>${body}</div><p class="notice">La graduatoria visualizzata è uno snapshot importato, ordinato per punti, differenza reti e gol fatti. In caso di parità i criteri CSI o eventuali scontri diretti possono produrre un ordine ufficiale diverso: fa fede Tuttocampo/CSI.</p>`;
+      if(widgetClassifica)return heading+banner()+sourcePanel+tabs+`<div class="panel league-embedded-panel"><div class="panel-heading"><h2 class="panel-title">Classifica · ${esc(season.name)}</h2></div>${embedLeagueWidget(widgetClassifica,'Classifica CSI Parma '+season.name,'Classifica')}</div>`+sourceCredit;
+      const body=standingsRows.length?`<div class="table-shell"><table class="data-table league-table"><thead><tr><th>POS.</th><th>Squadra</th><th>PG</th><th>V</th><th>N</th><th>P</th><th>GF</th><th>GS</th><th>DR</th><th>PT</th></tr></thead><tbody>${standingsRows.map((r,i)=>`<tr class="${/expats\s*f\.?c\.?/i.test(r.team)?'league-expats':''}"><td class="league-rank">${i+1}</td><td class="league-team">${esc(r.team)}</td><td>${r.pg}</td><td>${r.win}</td><td>${r.draw}</td><td>${r.loss}</td><td>${r.gf}</td><td>${r.ga}</td><td>${r.gf-r.ga}</td><td class="league-points">${esc(r.pts)}</td></tr>`).join('')}</tbody></table></div>`:empty('🏆','Classifica non ancora collegata','Collega il widget Classifica del girone per visualizzare i dati automaticamente qui dentro.');
+      return heading+banner()+sourcePanel+tabs+`<div class="panel"><div class="panel-heading"><div><h2 class="panel-title">Classifica · ${esc(season.name)}</h2><span class="panel-caption">${standingsRows.length} squadre · Ultima importazione: ${leagueStamp(standings.batch)}</span></div><button class="btn btn-secondary only-editor" data-action="league-import" data-kind="classifica">⇧ CSV</button></div>${body}</div>`+sourceCredit;
     }
-    const rows=fixtureRows.length?`<div class="table-shell"><table class="data-table league-table"><thead><tr><th>Giornata</th><th>Data</th><th>Casa</th><th>Risultato</th><th>Trasferta</th></tr></thead><tbody>${fixtureRows.map(r=>`<tr class="${/expats\s*f\.?c\.?/i.test(r.home+' '+r.away)?'league-expats':''}"><td>${esc(r.round||'—')}</td><td>${r.date?esc(localeDate(r.date)):'Da definire'}</td><td class="league-team">${esc(r.home)}</td><td class="league-score">${r.hg===null||r.ag===null?'–':`${r.hg} – ${r.ag}`}</td><td class="league-team">${esc(r.away)}</td></tr>`).join('')}</tbody></table></div>`:empty('📅','Calendario da importare','Puoi caricare incontri programmati e risultati conclusi da un CSV.');
-    return heading+banner()+sourcePanel+tabs+`<div class="panel"><div class="panel-heading"><div><h2 class="panel-title">Calendario e risultati · ${esc(season.name)}</h2><span class="panel-caption">${fixtureRows.length} incontri · Ultima importazione: ${leagueStamp(fixtures.batch)}</span></div><button class="btn btn-primary only-editor" data-action="league-import" data-kind="calendario">⇧ Importa calendario CSV</button></div>${rows}</div><p class="notice">Le partite del campionato vengono conservate separatamente dalle distinte degli Expats: importarle qui non modifica presenze, marcatori o risultati già registrati nella sezione Partite e risultati.</p>`;
+    if(widgetPartite||widgetRisultati){
+      const parts=[];
+      if(widgetRisultati)parts.push(`<div class="panel league-embedded-panel"><div class="panel-heading"><h2 class="panel-title">Risultati · ${esc(season.name)}</h2></div>${embedLeagueWidget(widgetRisultati,'Risultati CSI Parma '+season.name,'Risultati')}</div>`);
+      if(widgetPartite)parts.push(`<div class="panel league-embedded-panel"><div class="panel-heading"><h2 class="panel-title">Calendario e partite · ${esc(season.name)}</h2></div>${embedLeagueWidget(widgetPartite,'Partite CSI Parma '+season.name,'Partite')}</div>`);
+      return heading+banner()+sourcePanel+tabs+parts.join('')+sourceCredit;
+    }
+    const rows=fixtureRows.length?`<div class="table-shell"><table class="data-table league-table"><thead><tr><th>Giornata</th><th>Data</th><th>Casa</th><th>Risultato</th><th>Trasferta</th></tr></thead><tbody>${fixtureRows.map(r=>`<tr class="${/expats\s*f\.?c\.?/i.test(r.home+' '+r.away)?'league-expats':''}"><td>${esc(r.round||'—')}</td><td>${r.date?esc(localeDate(r.date)):'Da definire'}</td><td class="league-team">${esc(r.home)}</td><td class="league-score">${r.hg===null||r.ag===null?'–':`${r.hg} – ${r.ag}`}</td><td class="league-team">${esc(r.away)}</td></tr>`).join('')}</tbody></table></div>`:empty('📅','Calendario non ancora collegato','Collega il widget Risultati e/o Partite del girone per visualizzare il campionato automaticamente qui dentro.');
+    return heading+banner()+sourcePanel+tabs+`<div class="panel"><div class="panel-heading"><div><h2 class="panel-title">Calendario e risultati · ${esc(season.name)}</h2><span class="panel-caption">${fixtureRows.length} incontri · Ultima importazione: ${leagueStamp(fixtures.batch)}</span></div><button class="btn btn-secondary only-editor" data-action="league-import" data-kind="calendario">⇧ CSV</button></div>${rows}</div>`+sourceCredit;
+  }
+  function leagueWidgetsDialog(){
+    if(!editor())return;
+    const season=activeSeason();
+    const widgets=Object.fromEntries(LEAGUE_WIDGET_TYPES.map(type=>[type,getLeagueWidget(season.id,type)]));
+    const fields=LEAGUE_WIDGET_TYPES.map(type=>`<div class="field"><label for="league-widget-${type}">Widget ${type}</label><textarea id="league-widget-${type}" class="form-control league-widget-input" rows="2" spellcheck="false" placeholder="Incolla l'indirizzo https://www.tuttocampo.it/WidgetV2/${type}/... oppure il codice iframe">${esc(widgets[type])}</textarea></div>`).join('');
+    modal('Collega i widget ufficiali del campionato',`<div class="modal-explainer">Stagione <strong>${esc(season.name)}</strong>. Sul sito Tuttocampo apri il girone CSI Parma, vai alla funzione <strong>Widget / API</strong> e copia i codici per <strong>Classifica</strong>, <strong>Risultati</strong> e <strong>Partite</strong> dello stesso girone. Incollali qui. È sufficiente farlo una volta per stagione: tutti i visitatori vedranno i dati dentro Expats F.C.</div><div class="field-grid">${fields}</div><p class="notice">Accettiamo soltanto widget ufficiali di tuttocampo.it; non incollare l'URL della pagina generale del campionato, perché non è un widget. Lascia vuoto un campo se non è disponibile. Non vengono importate automaticamente le statistiche dei giocatori.</p>`,
+    `<button class="btn btn-primary" data-action="league-widgets-save">Salva collegamenti su Google Drive</button>`,true);
+  }
+  async function leagueWidgetsSave(){
+    if(!editor())return;
+    const seasonId=state.seasonId;
+    const rows=[];
+    try {
+      for(const type of LEAGUE_WIDGET_TYPES){
+        const source=document.getElementById('league-widget-'+type)?.value||'';
+        rows.push({type,url:leagueWidgetUrl(source,type)});
+      }
+    }catch(err){toast(safeError(err),true);return;}
+    const operations=rows.map(r=>{
+      const old=(state.data.leagueWidgets||[]).find(x=>x.seasonId===seasonId&&x.type===r.type);
+      return {sheet:'CampionatoWidget',...(old?{row:old._row}:{}),rows:[[seasonId,r.type,r.url,new Date().toISOString()]]};
+    });
+    const ok=await withBusy(()=>writeAtomic(operations));
+    if(ok){state.leagueTab='classifica';navigate('league');}
   }
   function leagueImportDialog(kind){
     if(!editor())return;
@@ -423,9 +487,9 @@
   function renderSettings() {
     return intro('CONNESSIONE E DATI','Configurazione','Gestione del collegamento con il foglio Google e stato del progetto.')+banner()+
     `<div class="two-cards"><div class="panel"><div class="panel-heading"><h2 class="panel-title">🔐 Stato connessione</h2></div><div class="breakdown"><div><span>Versione applicazione</span><strong>${VERSION}</strong></div><div><span>Origine dati</span><strong>${state.source==='drive'?'Google Drive':'Demo locale'}</strong></div><div><span>Modalità</span><strong>${editor()?'Google OAuth attivo':'Sola consultazione'}</strong></div><div><span>Archivio</span><strong>${CFG.spreadsheetId?'Configurato':'Da configurare'}</strong></div></div><p class="notice">Le autorizzazioni di scrittura non sono affidate al sito GitHub: le controlla Google tramite i permessi del foglio.</p></div>
-      <div class="panel"><div class="panel-heading"><h2 class="panel-title">📂 Dove sono salvati i dati?</h2></div><p class="form-guide">Tutte le informazioni sono conservate in un unico Google Sheets nel tuo Drive, diviso in 10 schede.</p><div class="breakdown">${SHEETS.map(s=>`<div><span>${esc(s)}</span><strong>Google Sheets</strong></div>`).join('')}</div>${CFG.spreadsheetId?`<p><a target="_blank" rel="noopener noreferrer" href="https://docs.google.com/spreadsheets/d/${encodeURIComponent(CFG.spreadsheetId)}/edit">Apri archivio Google Sheets ↗</a></p>`:''}</div></div>
+      <div class="panel"><div class="panel-heading"><h2 class="panel-title">📂 Dove sono salvati i dati?</h2></div><p class="form-guide">Tutte le informazioni sono conservate in un unico Google Sheets nel tuo Drive, diviso in 11 schede.</p><div class="breakdown">${SHEETS.map(s=>`<div><span>${esc(s)}</span><strong>Google Sheets</strong></div>`).join('')}</div>${CFG.spreadsheetId?`<p><a target="_blank" rel="noopener noreferrer" href="https://docs.google.com/spreadsheets/d/${encodeURIComponent(CFG.spreadsheetId)}/edit">Apri archivio Google Sheets ↗</a></p>`:''}</div></div>
     <div class="panel mt-20"><div class="panel-heading"><h2 class="panel-title">🎨 Ruoli, stati e colori</h2></div><p class="form-guide">Personalizza ruoli e stati, compreso il colore di ciascuno. Il tipo Portiere resta un attributo dei ruoli. Le scelte sono memorizzate su Google Sheets e sono valide per tutti.</p><div class="intro-buttons"><button class="btn btn-secondary only-editor" data-action="manage-roles">Gestisci ruoli e colori</button><button class="btn btn-secondary only-editor" data-action="manage-states">Gestisci stati e colori</button></div><div class="catalog-overview">${availableRoles().map(x=>roleBadge(x.name)).join(' ')}${availableStates().map(x=>statusBadge(x.id)).join(' ')}</div></div>
-    <div class="panel mt-20"><div class="panel-heading"><h2 class="panel-title">🚀 Messa online</h2></div><div class="two-cards"><div class="info-step"><h3>1. Aggiorna il database esistente</h3><p>Solo se parti da una versione precedente alla v1.11 esegui <strong>aggiornaDatabaseV111</strong> in Apps Script: aggiunge le colonne per il ruolo partita e per distinguere gol fatti/subiti, preservando i dati. Da versioni precedenti alla v1.9 occorre prima aggiornare lo schema AutogolFavore.</p></div><div class="info-step"><h3>2. Conserva l’accesso Google</h3><p>Se l’app è già collegata a Google, non modificare <strong>config.js</strong> né l’ID client OAuth: rimangono validi.</p></div><div class="info-step"><h3>3. Aggiorna alla v1.15</h3><p>Esegui <strong>aggiornaDatabaseV115</strong> in Apps Script, poi sostituisci <strong>index.html, app.js, styles.css e demo.js</strong>. Le nuove schede Campionato non modificano la rosa, le partite o le statistiche Expats. Conserva config.js.</p></div><div class="info-step"><h3>4. Importa risultati 2025/26</h3><p>Seleziona 2025/26 → Partite e risultati → Importa risultati CSV. Puoi modificare risultato e distinta cliccando una partita; le statistiche già nel pregresso possono essere assorbite senza duplicazioni.</p></div></div><p class="notice mt-20">Per tutte le istruzioni operative, vedere il file LEGGIMI.md incluso nel progetto.</p></div>`;
+    <div class="panel mt-20"><div class="panel-heading"><h2 class="panel-title">🚀 Messa online</h2></div><div class="two-cards"><div class="info-step"><h3>1. Aggiorna il database esistente</h3><p>Solo se parti da una versione precedente alla v1.11 esegui <strong>aggiornaDatabaseV111</strong> in Apps Script: aggiunge le colonne per il ruolo partita e per distinguere gol fatti/subiti, preservando i dati. Da versioni precedenti alla v1.9 occorre prima aggiornare lo schema AutogolFavore.</p></div><div class="info-step"><h3>2. Conserva l’accesso Google</h3><p>Se l’app è già collegata a Google, non modificare <strong>config.js</strong> né l’ID client OAuth: rimangono validi.</p></div><div class="info-step"><h3>3. Aggiorna alla v1.16</h3><p>Esegui <strong>aggiornaDatabaseV116</strong> in Apps Script, poi sostituisci <strong>index.html, app.js, styles.css e demo.js</strong>. Le nuove schede Campionato non modificano la rosa, le partite o le statistiche Expats. Conserva config.js.</p></div><div class="info-step"><h3>4. Importa risultati 2025/26</h3><p>Seleziona 2025/26 → Partite e risultati → Importa risultati CSV. Puoi modificare risultato e distinta cliccando una partita; le statistiche già nel pregresso possono essere assorbite senza duplicazioni.</p></div></div><p class="notice mt-20">Per tutte le istruzioni operative, vedere il file LEGGIMI.md incluso nel progetto.</p></div>`;
   }
   function render() {
     if(!state.data.seasons.some(s=>s.id===state.seasonId)) state.seasonId=defaultSeason()?.id||'';
@@ -645,8 +709,9 @@
     expected.push([5,6,['NumeroMagliaPortiere']]);
     expected.push([8,0,['StagioneID','ImportID','Squadra','PG','V','N','P','GF','GS','Punti']]);
     expected.push([9,0,['StagioneID','ImportID','Giornata','Data','Casa','Trasferta','GolCasa','GolTrasferta']]);
+    expected.push([10,0,['StagioneID','Tipo','URL','AggiornatoIl']]);
     state.schemaReady=expected.every(([index,start,columns])=>columns.every((v,i)=>String(ranges[index]?.values?.[0]?.[start+i]||'').trim()===v));
-    if(!state.schemaReady)throw new Error('Il database richiede la migrazione v1.15: esegui aggiornaDatabaseV115 in Apps Script prima di modificare i dati.');
+    if(!state.schemaReady)throw new Error('Il database richiede la migrazione v1.16: esegui aggiornaDatabaseV116 in Apps Script prima di modificare i dati.');
     return decodeSheets(ranges.map(x=>(x.values||[]).slice(1)));
   }
   async function loadPublic() {
@@ -654,7 +719,7 @@
     return decodeSheets(tables);
   }
   function decodeSheets(arrays) {
-    const [p,s,m,l,b,t,rr,ss,cc,cp]=arrays;
+    const [p,s,m,l,b,t,rr,ss,cc,cp,cw]=arrays;
     const trimmed=rows=>(rows||[]).filter(row=>row?.some(x=>String(x??'').trim()!==''));
     const str=x=>String(x??'').trim();
     const players=(p||[]).map((r,i)=>({id:str(r[0]),number:num(r[1]),firstName:str(r[2]),lastName:str(r[3]),status:str(r[4])||'ATTIVO',role:str(r[5]),notes:str(r[6]),_row:i+2})).filter(x=>x.id);
@@ -668,7 +733,8 @@
     const states=(ss||[]).map((r,i)=>({id:str(r[0]),name:str(r[1]),color:safeColor(str(r[2])),active:one(r[3]),_row:i+2})).filter(x=>x.id);
     const leagueStandings=(cc||[]).map((r,i)=>({seasonId:str(r[0]),batch:str(r[1]),team:str(r[2]),pg:positiveInt(r[3]),win:positiveInt(r[4]),draw:positiveInt(r[5]),loss:positiveInt(r[6]),gf:positiveInt(r[7]),ga:positiveInt(r[8]),pts:num(r[9]),_row:i+2})).filter(x=>x.seasonId&&x.team&&x.batch);
     const leagueFixtures=(cp||[]).map((r,i)=>({seasonId:str(r[0]),batch:str(r[1]),round:str(r[2]),date:padDate(r[3]),home:str(r[4]),away:str(r[5]),hg:r[6]===''||r[6]==null?null:positiveInt(r[6]),ag:r[7]===''||r[7]==null?null:positiveInt(r[7]),_row:i+2})).filter(x=>x.seasonId&&x.home&&x.away&&x.batch);
-    return {players,seasons,matches,lineups,baseline,memberships,leagueStandings,leagueFixtures,roles:roles.length?roles:structuredClone(legacyRoles),states:states.length?states:structuredClone(legacyStates)};
+    const leagueWidgets=(cw||[]).map((r,i)=>({seasonId:str(r[0]),type:str(r[1]),url:str(r[2]),updatedAt:str(r[3]),_row:i+2})).filter(x=>x.seasonId&&LEAGUE_WIDGET_TYPES.includes(x.type));
+    return {players,seasons,matches,lineups,baseline,memberships,leagueStandings,leagueFixtures,leagueWidgets,roles:roles.length?roles:structuredClone(legacyRoles),states:states.length?states:structuredClone(legacyStates)};
   }
   async function refreshData() {
     if(!CFG.spreadsheetId) {state.source='demo';render();return;}
@@ -714,10 +780,10 @@
     return googleAPI(':batchUpdate',{method:'POST',body:JSON.stringify({requests})});
   }
   async function writeAtomic(ops) {
-    if(!state.schemaReady)throw new Error('Aggiorna lo schema Google Sheets alla v1.15 eseguendo aggiornaDatabaseV115.');
+    if(!state.schemaReady)throw new Error('Aggiorna lo schema Google Sheets alla v1.16 eseguendo aggiornaDatabaseV116.');
     const requests=ops.filter(op=>op.rows?.length).map(op=>{
       const sheetId=state.sheetIds[op.sheet];
-      if(sheetId===undefined)throw new Error('Scheda '+op.sheet+' mancante. Esegui aggiornaDatabaseV15 in Apps Script.');
+      if(sheetId===undefined)throw new Error('Scheda '+op.sheet+' mancante. Esegui aggiornaDatabaseV116 in Apps Script.');
       if(op.row) return {updateCells:{start:{sheetId,rowIndex:op.row-1,columnIndex:0},rows:op.rows.map(rowCells),fields:'userEnteredValue'}};
       return {appendCells:{sheetId,rows:op.rows.map(rowCells),fields:'userEnteredValue'}};
     });
@@ -1139,6 +1205,8 @@
     if(btn.dataset.season){state.seasonId=btn.dataset.season;navigate('dashboard');return;}
     const action=btn.dataset.action;
     if(action==='close-modal')closeModal();
+    else if(action==='league-widgets')leagueWidgetsDialog();
+    else if(action==='league-widgets-save')leagueWidgetsSave().catch(e=>toast(safeError(e),true));
     else if(action==='league-tab'){state.leagueTab=btn.dataset.tab==='calendario'?'calendario':'classifica';render();}
     else if(action==='league-import')leagueImportDialog(btn.dataset.kind);
     else if(action==='league-validate')leagueValidate(btn.dataset.kind);
