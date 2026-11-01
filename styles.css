@@ -254,3 +254,26 @@ button,input,select,textarea{font-family:inherit}
 .league-match-cards .panel-title{font-size:17px}
 .league-embed-ultimapartita,.league-embed-prossimapartita{height:440px}
 @media(max-width:840px){.league-match-cards{grid-template-columns:1fr}.league-embed-ultimapartita,.league-embed-prossimapartita{height:460px}}
+
+
+/* v1.18 — widget compatti e regolabili, senza i grandi riquadri bianchi */
+.league-embedded-panel{padding:14px 16px 15px}
+.league-embedded-panel>.panel-heading{margin-bottom:6px}
+.league-embedded-panel>.panel-heading .panel-title{font-size:17px}
+.league-embed-wrap{margin-top:8px;background:transparent;border:1px solid #2a4865;border-radius:10px;overflow:hidden}
+.league-embed-controls{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 12px;background:#132c40;color:#a7c1d8;font-size:12px}
+.league-embed-source{font-weight:800;color:#80dec1}
+.league-resize-actions{display:inline-flex;align-items:center;gap:8px}
+.league-resize-btn{width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;color:#e6f3ff;font-size:19px;font-weight:700;border:1px solid #47708b;border-radius:6px;background:#1b3b54;cursor:pointer;line-height:1}
+.league-resize-btn:hover,.league-resize-btn:focus-visible{background:#275a74;outline:2px solid #76e0bf;outline-offset:1px}
+.league-height-value{min-width:49px;text-align:center;font-variant-numeric:tabular-nums;color:#e4f2ff}
+.league-embed{display:block;width:100%;border:0;background:#fff}
+.league-match-cards{align-items:start;gap:12px;margin-bottom:13px}
+.league-match-cards .panel-heading{min-height:0}
+@media(max-width:760px){.league-match-cards{grid-template-columns:1fr}.league-embedded-panel{padding:12px 10px}.league-embed-controls{flex-wrap:wrap;padding:7px 10px}}
+/* Tuttocampo fornisce widget da circa 500 px: evitare di stirarli in larghezza
+   (lo stiramento lascia ampie aree bianche accanto al contenuto). */
+.league-embedded-panel{width:min(100%,580px)}
+.league-match-cards{grid-template-columns:repeat(2,minmax(0,580px))}
+.league-match-cards>.league-embedded-panel{width:100%}
+@media(max-width:760px){.league-embedded-panel{width:100%}.league-match-cards{grid-template-columns:1fr}}
