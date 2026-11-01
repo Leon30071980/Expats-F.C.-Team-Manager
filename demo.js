@@ -31,6 +31,8 @@ window.EXPATS_DEMO = {
     ...[1,2,3,4,5,6,7,8,9,10,11,13,14,15,16,17,18,31].map(n=>({seasonId:'s-2026-27',playerId:'p'+n,inRoster:true,number:n,role:n===1?'Portiere':'',status:[15,16].includes(n)?'INFORTUNATO':'ATTIVO'}))
   ],
   matches: [],
+  leagueStandings: [],
+  leagueFixtures: [],
   lineups: [],
   baseline: [
     ['p1',18,17,-57,0,0,0],['p2',7,7,3,1,0,0],['p3',0,0,0,0,0,0],

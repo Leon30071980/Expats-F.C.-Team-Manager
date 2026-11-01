@@ -227,3 +227,9 @@ button,input,select,textarea{font-family:inherit}
 .roster-table .col-shirt{min-width:126px;width:126px}
 .roster-table .shirt-pair{min-width:100px;gap:6px}
 .roster-table tbody tr,.roster-table tbody td{height:84px}
+
+/* v1.15 — Campionato CSI, dati dal foglio Google e fonte Tuttocampo */
+.league-source{display:flex;align-items:center;justify-content:space-between;gap:16px;background:#122c36;border:1px solid #286c60;padding:18px 22px;border-radius:13px;margin:0 0 18px}
+.league-source strong{font-family:'Exo 2';font-size:16px;color:#8cf1ce}.league-source p{color:#a6c6d0;font-size:13px;line-height:1.6;margin:6px 0 0;max-width:700px}
+.league-source .chip{white-space:nowrap}.league-tabs{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}.league-tabs button{font-family:'Exo 2';font-weight:800;font-size:14px;border:1px solid #2b4360;color:#b4cee5;background:#16283e;padding:12px 20px;border-radius:10px;cursor:pointer}.league-tabs button.selected{background:#145a50;color:#adfbe1;border-color:#2aba88}.league-table{min-width:770px}.league-table th,.league-table td{font-size:13px}.league-team{font-weight:800}.league-rank{font-weight:900;color:#8cb8e5}.league-points{font-weight:900;color:#6ce2ae}.league-score{white-space:nowrap;font-size:16px;font-weight:900;color:#e5f2fc}.league-table tr.league-expats td{background:#143a3f!important}.league-table tr.league-expats .league-team{color:#7bf0c3}.league-import-ok{border-radius:8px;background:#154d3b;border:1px solid #34765b;padding:12px;color:#a9fbd9}.league-source+.league-tabs+.panel{margin-top:0}
+@media(max-width:640px){.league-source{align-items:flex-start;flex-direction:column;padding:15px}.league-tabs button{flex:1;padding:11px 8px;font-size:12px}.league-source p{font-size:12px}}
