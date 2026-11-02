@@ -756,3 +756,16 @@ button,input,select,textarea{font-family:inherit}
   .formation-field-frame-v131 .formation-player-shirt .shirt-wrap {height: 27px; width: 32px}
   .formation-field-frame-v131 .formation-bench-list {grid-template-columns: 1fr}
 }
+
+/* v1.33 — Dati Atleti, solo amministratore */
+.athlete-table{min-width:800px;width:100%}
+.athlete-table td{vertical-align:middle;padding:10px 12px}
+.athlete-table td:first-child strong,.athlete-table td:first-child small{display:block}
+.athlete-table td:first-child small{color:#98adc6;font-size:.76rem}
+.athlete-table input[type="date"]{min-width:162px;max-width:190px}
+.athlete-table .athlete-flag{display:flex;align-items:center;gap:10px;white-space:nowrap;cursor:pointer;font-weight:700}
+.athlete-table .athlete-flag input{width:19px;height:19px;accent-color:#36c694}
+.athlete-auto-state{display:inline-flex;flex-direction:column;gap:4px;align-items:flex-start}
+.athlete-auto-state small{font-size:9px;text-transform:uppercase;letter-spacing:.05em;color:#bcd3e8}
+.athlete-table td:nth-child(4)>small{display:block;color:#f1ca8a;margin-top:5px}
+@media (max-width:720px){.athlete-panel{padding:12px}.athlete-table{font-size:13px}.athlete-table td{padding:9px}}

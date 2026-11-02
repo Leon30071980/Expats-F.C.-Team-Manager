@@ -1,17 +1,17 @@
-/* EXPATS F.C. TEAM MANAGER — v1.32
+/* EXPATS F.C. TEAM MANAGER — v1.33
  * Frontend statico GitHub Pages + Google Sheets API (edit via OAuth) + GViz JSONP (pubblico).
  * Il controllo delle modifiche dipende dai permessi Google Drive sul foglio.
  */
 (() => {
   'use strict';
   const CFG = window.EXPATS_CONFIG;
-  const SHEETS = ['Giocatori','Stagioni','Partite','Distinte','Pregresso','Tesseramenti','Ruoli','Stati','CampionatoClassifica','CampionatoPartite','CampionatoWidget','Formazioni','FormazioniPartite','EventiGol'];
-  const VERSION='v1.32';
+  const SHEETS = ['Giocatori','Stagioni','Partite','Distinte','Pregresso','Tesseramenti','Ruoli','Stati','CampionatoClassifica','CampionatoPartite','CampionatoWidget','Formazioni','FormazioniPartite','EventiGol','IdoneitaRosa'];
+  const VERSION='v1.33';
   const state = {
     data: structuredClone(window.EXPATS_DEMO),
     source: 'demo', view: 'league', seasonId: '', rosterScope: 'season',
     sort: {key:'number',dir:1}, search:'', filter:'TUTTI', leagueTab:'calendario',
-    token: '', accountEmail:'', sheetIds: {}, schemaReady:false, busy: false, inlineSaving:false, lastError: '', formationDraft:null, formationMatchId:'', formationPickerSlot:null
+    token: '', accountEmail:'', sheetIds: {}, schemaReady:false, busy: false, inlineSaving:false, lastError: '', formationDraft:null, formationMatchId:'', formationPickerSlot:null, athleteRecords:[],athleteError:'',athleteReady:false
   };
   const $ = (sel, root=document) => root.querySelector(sel);
   const el = (name, attrs={}) => Object.assign(document.createElement(name), attrs);
@@ -55,6 +55,28 @@
   const playersInSeason = seasonId => state.data.players.filter(p=>isMember(p.id,seasonId)).map(p=>seasonPlayer(p,seasonId));
   const keeperInSeason = (playerId,seasonId) => isKeeper(seasonPlayer(state.data.players.find(p=>p.id===playerId),seasonId));
   const registrationValues=(seasonId,playerId,inRoster,number,role,status,keeperNumber=null)=>[seasonId,playerId,inRoster?1:0,number,role,status,keeperNumber==null?'':keeperNumber];
+  // Esponiamo al pubblico SOLO lo stato risultante, MAI la scadenza medica.
+  const automaticStatus = (playerId,seasonId) => {
+    const entry=(state.data.eligibility||[]).find(r=>r.seasonId===seasonId&&r.playerId===playerId);
+    return entry?.status && state.data.states.some(x=>x.id===entry.status) ? entry.status : '';
+  };
+  const effectiveStatus = (p,seasonId=state.seasonId) => automaticStatus(p.id,seasonId)||p.status;
+  const statusForDisplay = (p,seasonId=state.seasonId) => {
+    const automatic=automaticStatus(p.id,seasonId);
+    return automatic ? `<span class="athlete-auto-state" title="Stato assegnato automaticamente da Dati Atleti">${statusBadge(automatic)}<small>Automatico</small></span>` : (editor()?dropdown('status',p.status,p.id):statusBadge(p.status));
+  };
+  const athleteToday=()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;};
+  const athleteStatusId=kind=>{
+    const normalize=x=>String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+    const entry=state.data.states.find(x=>kind==='medical'?/cert.*med.*scadut/.test(normalize(x.name)):/non.*tesserat/.test(normalize(x.name)));
+    return entry?.id||'';
+  };
+  const calculateAutomaticStatus = ({expiry,csi}) => {
+    if(expiry && expiry<athleteToday())return athleteStatusId('medical');
+    if(!csi)return athleteStatusId('csi');
+    return '';
+  };
+
   const padDate = value => {
     if (typeof value === 'number' && value > 20000 && value < 80000)
       return new Date(Date.UTC(1899,11,30) + Math.round(value)*86400000).toISOString().slice(0,10);
@@ -100,8 +122,9 @@
   const fixture = m => ({home:m.venue==='T'?m.opponent:'Expats F.C.',away:m.venue==='T'?'Expats F.C.':m.opponent,
     homeGoals:m.venue==='T'?m.goalsAgainst:m.goalsFor,awayGoals:m.venue==='T'?m.goalsFor:m.goalsAgainst});
   const isUnavailable = p => {
-    const label=`${p.status||''} ${statusText(p.status)}`.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleLowerCase('it');
-    return /infortun|assen/.test(label);
+    const visibleStatus=effectiveStatus(p);
+    const label=`${visibleStatus||''} ${statusText(visibleStatus)}`.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleLowerCase('it');
+    return /infortun|assen|cert.*med.*scadut|non.*tesserat/.test(label);
   };
   // Evidenzia solo la nostra squadra, anche quando il CSV usa 'Expats'
   // anziché 'Expats F.C.'. Evitiamo falsi positivi su altri nomi.
@@ -249,8 +272,8 @@
   const byKey = (items,key) => [...items].sort((a,b) => num(b[key])-num(a[key]) || name(a).localeCompare(name(b),'it'));
   function seasonTotals(id) {
     const st=statsForSeason(id);const matches=seasonMatches(id);
-    return { players:playersInSeason(id).length, available:playersInSeason(id).filter(p=>!isUnavailable(p)).length, active:playersInSeason(id).filter(p=>p.status==='ATTIVO').length,
-      injured:playersInSeason(id).filter(p=>p.status==='INFORTUNATO').length,
+    return { players:playersInSeason(id).length, available:playersInSeason(id).filter(p=>!isUnavailable(p)).length, active:playersInSeason(id).filter(p=>effectiveStatus(p,id)==='ATTIVO').length,
+      injured:playersInSeason(id).filter(p=>effectiveStatus(p,id)==='INFORTUNATO').length,
       called:st.reduce((t,p)=>t+p.called,0), played:st.reduce((t,p)=>t+p.played,0),
       goals:st.reduce((t,p)=>t+p.goalsFor,0),ownGoals:matches.reduce((t,m)=>t+positiveInt(m.ownGoalsFor),0),assists:st.reduce((t,p)=>t+p.assists,0),
       matches:matches.length,win:matches.filter(m=>matchResult(m)==='W').length,
@@ -259,12 +282,12 @@
       conceded:matches.reduce((t,m)=>t+positiveInt(m.goalsAgainst),0)};
   }
   const NAV = [
-    ['dashboard','◈','Panoramica'],['players','♙','Rosa giocatori'],
+    ['dashboard','◈','Panoramica'],['players','♙','Rosa giocatori'],['athletes','🩺','Dati Atleti'],
     ['matches','⚽','Partite e risultati'],['rankings','▥','Statistiche'],['league','🏆','Campionato'],
     ['seasons','▦','Storico stagioni'],['formation','⚽','Formazione'],['settings','⚙','Configurazione']
   ];
   function renderNav() {
-    $('#nav').innerHTML=NAV.filter(([id])=>id==='formation'?canManageFormation():id==='settings'?editor():true).map(([id,ico,label])=>`<button class="nav-item ${state.view===id?'active':''}" data-nav="${id}"><span class="nav-icon">${ico}</span>${esc(label)}</button>`).join('');
+    $('#nav').innerHTML=NAV.filter(([id])=>id==='formation'||id==='athletes'?canManageFormation():id==='settings'?editor():true).map(([id,ico,label])=>`<button class="nav-item ${state.view===id?'active':''}" data-nav="${id}"><span class="nav-icon">${ico}</span>${esc(label)}</button>`).join('');
     $('#current-label').textContent=NAV.find(x=>x[0]===state.view)?.[2] || 'Panoramica';
     $('#auth-btn').textContent=editor()?'Disconnetti Google':'Accedi con Google';
     $('#auth-btn').className=editor()?'btn btn-secondary':'btn btn-outline';
@@ -311,11 +334,11 @@
     const list=statsForSeason(activeSeason().id).filter(p=>{
       if(state.rosterScope==='season' && !isMember(p.id,state.seasonId))return false;
       const q=state.search.trim().toLocaleLowerCase('it');
-      return (state.filter==='TUTTI'||p.status===state.filter) && (`${name(p)} ${p.number} ${p.keeperNumber??''} ${rolesText(p.role)}`.toLocaleLowerCase('it').includes(q));
+      return (state.filter==='TUTTI'||effectiveStatus(p)===state.filter) && (`${name(p)} ${p.number} ${p.keeperNumber??''} ${rolesText(p.role)}`.toLocaleLowerCase('it').includes(q));
     });
     const {key,dir}=state.sort;
     list.sort((a,b)=>{
-      const av=key==='seasons'?seasonsPlayed(a.id):key==='role'?rolesText(a.role):key==='goals'?a.goalsFor:a[key],bv=key==='seasons'?seasonsPlayed(b.id):key==='role'?rolesText(b.role):key==='goals'?b.goalsFor:b[key];
+      const av=key==='seasons'?seasonsPlayed(a.id):key==='role'?rolesText(a.role):key==='goals'?a.goalsFor:key==='status'?effectiveStatus(a):a[key],bv=key==='seasons'?seasonsPlayed(b.id):key==='role'?rolesText(b.role):key==='goals'?b.goalsFor:key==='status'?effectiveStatus(b):b[key];
       return (typeof av==='number'&&typeof bv==='number'?av-bv:String(av||'').localeCompare(String(bv||''),'it'))*dir || name(a).localeCompare(name(b),'it');
     });
     return list;
@@ -330,7 +353,7 @@
       const visual=k==='goals'?p.goalsFor:positiveInt(p[k]);
       return `<td class="metric-cell metric-${k} ${hasConceded?'keeper-goals':''}" title="${hasConceded?'Gol fatti / gol subiti':'Statistica stagionale'}"><div class="metric-value">${esc(value)}</div>${hasConceded?'':`<div class="metric-track"><span style="width:${Math.min(100,Math.round(100*visual/maximum[k]))}%"></span></div>`}</td>`;
     };
-    return rows.map((p,i)=>`<tr class="clickable" data-player="${esc(p.id)}" title="Dettaglio ${esc(name(p))}"><td class="row-index">${i+1}</td><td class="col-shirt">${playerJerseys(p,false,state.seasonId)}</td><td class="col-name">${esc(p.firstName)}</td><td class="col-name">${esc(p.lastName)}</td><td class="inline-cell role-cell">${roleCell(p.role,p.id)}</td><td class="inline-cell status-cell">${editor()?dropdown('status',p.status,p.id):statusBadge(p.status)}</td>${isAfterFirstSeason(state.seasonId)?`<td class="num season-num">${seasonsPlayed(p.id)}</td>`:''}${keys.map(k=>metric(p,k)).join('')}</tr>`).join('');
+    return rows.map((p,i)=>`<tr class="clickable" data-player="${esc(p.id)}" title="Dettaglio ${esc(name(p))}"><td class="row-index">${i+1}</td><td class="col-shirt">${playerJerseys(p,false,state.seasonId)}</td><td class="col-name">${esc(p.firstName)}</td><td class="col-name">${esc(p.lastName)}</td><td class="inline-cell role-cell">${roleCell(p.role,p.id)}</td><td class="inline-cell status-cell">${statusForDisplay(p)}</td>${isAfterFirstSeason(state.seasonId)?`<td class="num season-num">${seasonsPlayed(p.id)}</td>`:''}${keys.map(k=>metric(p,k)).join('')}</tr>`).join('');
   }
   function renderPlayers() {
     return intro('ROSA UFFICIALE','I nostri giocatori','Maglia, ruoli multipli e stato indipendenti per stagione, modificabili dalla rosa e dalla scheda giocatore.',`<button class="btn btn-secondary" data-action="export">↓ Esporta CSV</button><button class="btn btn-primary only-editor" data-action="new-player">＋ Nuovo giocatore</button>`)+banner()+
@@ -793,19 +816,19 @@
   function renderSettings() {
     return intro('CONNESSIONE E DATI','Configurazione','Gestione del collegamento con il foglio Google e stato del progetto.')+banner()+
     `<div class="two-cards"><div class="panel"><div class="panel-heading"><h2 class="panel-title">🔐 Stato connessione</h2></div><div class="breakdown"><div><span>Versione applicazione</span><strong>${VERSION}</strong></div><div><span>Origine dati</span><strong>${state.source==='drive'?'Google Drive':'Demo locale'}</strong></div><div><span>Modalità</span><strong>${editor()?'Google OAuth attivo':'Sola consultazione'}</strong></div><div><span>Archivio</span><strong>${CFG.spreadsheetId?'Configurato':'Da configurare'}</strong></div></div><p class="notice">Le autorizzazioni di scrittura non sono affidate al sito GitHub: le controlla Google tramite i permessi del foglio.</p></div>
-      <div class="panel"><div class="panel-heading"><h2 class="panel-title">📂 Dove sono salvati i dati?</h2></div><p class="form-guide">Tutte le informazioni sono conservate in un unico Google Sheets nel tuo Drive, diviso in 14 schede.</p><div class="breakdown">${SHEETS.map(s=>`<div><span>${esc(s)}</span><strong>Google Sheets</strong></div>`).join('')}</div>${CFG.spreadsheetId?`<p><a target="_blank" rel="noopener noreferrer" href="https://docs.google.com/spreadsheets/d/${encodeURIComponent(CFG.spreadsheetId)}/edit">Apri archivio Google Sheets ↗</a></p>`:''}</div></div>
+      <div class="panel"><div class="panel-heading"><h2 class="panel-title">📂 Dove sono salvati i dati?</h2></div><p class="form-guide">Statistiche e stati pubblici si trovano nel foglio condiviso. Le scadenze mediche sono in un secondo Google Sheets privato, accessibile solo all’amministratore.</p><div class="breakdown">${SHEETS.map(s=>`<div><span>${esc(s)}</span><strong>Google Sheets</strong></div>`).join('')}</div>${CFG.spreadsheetId?`<p><a target="_blank" rel="noopener noreferrer" href="https://docs.google.com/spreadsheets/d/${encodeURIComponent(CFG.spreadsheetId)}/edit">Apri archivio Google Sheets ↗</a></p>`:''}</div></div>
     <div class="panel mt-20"><div class="panel-heading"><h2 class="panel-title">🎨 Ruoli, stati e colori</h2></div><p class="form-guide">Personalizza ruoli e stati, compreso il colore di ciascuno. Il tipo Portiere resta un attributo dei ruoli. Le scelte sono memorizzate su Google Sheets e sono valide per tutti.</p><div class="intro-buttons"><button class="btn btn-secondary only-editor" data-action="manage-roles">Gestisci ruoli e colori</button><button class="btn btn-secondary only-editor" data-action="manage-states">Gestisci stati e colori</button></div><div class="catalog-overview">${availableRoles().map(x=>roleBadge(x.name)).join(' ')}${availableStates().map(x=>statusBadge(x.id)).join(' ')}</div></div>
     <div class="panel mt-20"><div class="panel-heading"><h2 class="panel-title">🚀 Messa online</h2></div><div class="two-cards"><div class="info-step"><h3>1. Aggiorna il database esistente</h3><p>Solo se parti da una versione precedente alla v1.11 esegui <strong>aggiornaDatabaseV111</strong> in Apps Script: aggiunge le colonne per il ruolo partita e per distinguere gol fatti/subiti, preservando i dati. Da versioni precedenti alla v1.9 occorre prima aggiornare lo schema AutogolFavore.</p></div><div class="info-step"><h3>2. Proteggi l'accesso amministrativo</h3><p>Mantieni gli ID già funzionanti in <strong>config.js</strong> e aggiungi la proprietà <strong>adminEmail</strong> con la tua email Google. La cancellazione delle partite sarà disponibile soltanto dopo l'identificazione dell'account amministratore. Non condividere i permessi Editor del Google Sheet con altri utenti.</p></div><div class="info-step"><h3>3. Aggiorna alla v1.23</h3><p>Per la v1.23, esegui <strong>aggiornaDatabaseV123</strong> una sola volta dopo un backup del foglio, poi sostituisci <strong>index.html, app.js e styles.css</strong>. Il nuovo flag esclude la distinta dai totali senza modificare il Pregresso.</p></div><div class="info-step"><h3>4. Campionato storico 2025/26</h3><p>Seleziona 2025/26 → Campionato e collega i widget ufficiali del Girone B. I vecchi widget del Girone A sono esclusi. Per importare classifica e calendario in-app usa i pulsanti di importazione. Solo se vuoi registrare i risultati anche nelle partite interne della squadra, usa l’importazione CSV; i dati individuali storici non vengono modificati dai widget.</p></div></div><p class="notice mt-20">Per tutte le istruzioni operative, vedere il file LEGGIMI.md incluso nel progetto.</p></div>`;
   }
   function render() {
     if(!state.data.seasons.some(s=>s.id===state.seasonId)) state.seasonId=defaultSeason()?.id||'';
-    if(state.view==='formation'&&!canManageFormation())state.view='league';
+    if((state.view==='formation'||state.view==='athletes')&&!canManageFormation())state.view='league';
     if(state.view==='settings'&&!editor())state.view='league';
     renderNav();
-    const content=({dashboard:renderDashboard,players:renderPlayers,matches:renderMatches,rankings:renderRankings,league:renderLeague,seasons:renderSeasons,formation:renderFormation,settings:renderSettings}[state.view]||renderDashboard)();
+    const content=({dashboard:renderDashboard,players:renderPlayers,matches:renderMatches,rankings:renderRankings,league:renderLeague,seasons:renderSeasons,formation:renderFormation,athletes:renderAthletes,settings:renderSettings}[state.view]||renderDashboard)();
     $('#main-content').innerHTML=content;
   }
-  function navigate(view) { if(view==='formation'&&!canManageFormation())return;if(view==='settings'&&!editor())return;state.view=view;render();window.scrollTo({top:0,behavior:'smooth'}); }
+  function navigate(view) { if((view==='formation'||view==='athletes')&&!canManageFormation())return;if(view==='settings'&&!editor())return;state.view=view;render();window.scrollTo({top:0,behavior:'smooth'}); }
   function closeModal() { $('#modal-root').replaceChildren();document.body.style.overflow=''; }
   function modal(title,body,footer='',wide=false) {
     $('#modal-root').innerHTML=`<div class="modal-backdrop" data-backdrop="true"><div class="modal ${wide?'wide':''}" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div class="modal-header"><h2 id="modal-title">${esc(title)}</h2><button class="modal-close" data-action="close-modal" aria-label="Chiudi finestra">×</button></div><div class="modal-body">${body}</div>${footer?`<div class="modal-footer">${footer}</div>`:''}</div></div>`;
@@ -815,7 +838,7 @@
   function profile(playerId) {
     const p=statsForSeason(state.seasonId).find(p=>p.id===playerId); if(!p)return;
     const played=state.data.lineups.filter(l=>l.playerId===p.id && state.data.matches.some(m=>m.id===l.matchId&&m.seasonId===state.seasonId));
-    const body=`<div class="profile-hero"><div class="player-portrait">${playerJerseys(p,true,state.seasonId)}</div><div><div class="eyebrow">SCHEDA GIOCATORE</div><h3 class="profile-title">${esc(name(p))}</h3>${statusBadge(p.status)} <span class="profile-role-badges">${roleBadge(p.role)}</span></div></div><div class="profile-stats">${[['Convocazioni',p.called],['Presenze',p.played],['Gol',rosterGoalText(p)],['Assist',p.assists],['Gialli',p.yellow],['Rossi',p.red],...(isAfterFirstSeason(state.seasonId)?[['Stagioni',seasonsPlayed(p.id)]]:[])].map(([label,n])=>`<div><strong>${n}</strong><small>${label}</small></div>`).join('')}</div>${p.notes?`<p class="form-guide">${esc(p.notes)}</p>`:''}<hr class="soft-rule"><h3 class="panel-title">Statistiche registrate per partita</h3>${played.length?played.map(l=>{const m=state.data.matches.find(m=>m.id===l.matchId);return `<div class="result-line"><span>${esc(m?.opponent)} · ${localeDate(m?.date)}</span><span>${matchKeeper(l,state.seasonId)?'🧤 Portiere':'⚽ Movimento'} · Gol ${goalText(l)} · 🎯 ${positiveInt(l.assists)}${m?.noStats?' · Non conteggiata':''}</span></div>`}).join(''):'<p class="form-guide">Le statistiche pregresse sono aggregate; non è disponibile il dettaglio delle vecchie partite.</p>'}`;
+    const body=`<div class="profile-hero"><div class="player-portrait">${playerJerseys(p,true,state.seasonId)}</div><div><div class="eyebrow">SCHEDA GIOCATORE</div><h3 class="profile-title">${esc(name(p))}</h3>${statusBadge(effectiveStatus(p))} <span class="profile-role-badges">${roleBadge(p.role)}</span></div></div><div class="profile-stats">${[['Convocazioni',p.called],['Presenze',p.played],['Gol',rosterGoalText(p)],['Assist',p.assists],['Gialli',p.yellow],['Rossi',p.red],...(isAfterFirstSeason(state.seasonId)?[['Stagioni',seasonsPlayed(p.id)]]:[])].map(([label,n])=>`<div><strong>${n}</strong><small>${label}</small></div>`).join('')}</div>${p.notes?`<p class="form-guide">${esc(p.notes)}</p>`:''}<hr class="soft-rule"><h3 class="panel-title">Statistiche registrate per partita</h3>${played.length?played.map(l=>{const m=state.data.matches.find(m=>m.id===l.matchId);return `<div class="result-line"><span>${esc(m?.opponent)} · ${localeDate(m?.date)}</span><span>${matchKeeper(l,state.seasonId)?'🧤 Portiere':'⚽ Movimento'} · Gol ${goalText(l)} · 🎯 ${positiveInt(l.assists)}${m?.noStats?' · Non conteggiata':''}</span></div>`}).join(''):'<p class="form-guide">Le statistiche pregresse sono aggregate; non è disponibile il dettaglio delle vecchie partite.</p>'}`;
     modal(name(p),body,`<button class="btn btn-secondary" data-action="close-modal">Chiudi</button><button class="btn btn-secondary only-editor" data-action="edit-baseline" data-id="${esc(p.id)}">Correggi pregresso</button><button class="btn btn-primary only-editor" data-action="edit-player" data-id="${esc(p.id)}">Modifica giocatore</button>${isMember(p.id,state.seasonId)?`<button class="btn btn-danger only-editor" data-action="remove-from-roster" data-id="${esc(p.id)}">Rimuovi dalla rosa ${esc(activeSeason().name)}</button>`:`<button class="btn btn-secondary only-editor" data-action="restore-to-roster" data-id="${esc(p.id)}">Reinserisci in rosa ${esc(activeSeason().name)}</button>`}`);
   }
   function playerForm(playerId='') {
@@ -1099,7 +1122,7 @@
     };
     const rows=[labels,...playerRows().map((p,i)=>[i+1,...fields.map(k=>k==='seasons'?seasonsPlayed(p.id):k==='role'?rolesText(p.role):k==='goals'?rosterGoalText(p):p[k])])];
     const csv='\ufeff'+rows.map(row=>row.map(escapeCSV).join(';')).join('\r\n');
-    const blob=new Blob([csv],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=el('a',{href:url,download:`expats-fc-${state.seasonId}-v1.32.csv`});
+    const blob=new Blob([csv],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=el('a',{href:url,download:`expats-fc-${state.seasonId}-v1.33.csv`});
     document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),2000);toast('Classifica esportata in CSV.');
   }
   // --- Google Drive: lettura pubblica via Google Visualization JSONP ---
@@ -1123,7 +1146,7 @@
   }
   async function googleAPI(path,options={}) {
     if(!state.token) throw new Error('Sessione scaduta: accedi nuovamente con Google.');
-    const url=`https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(CFG.spreadsheetId)}${path}`;
+    const url=`https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(options.spreadsheetId||CFG.spreadsheetId)}${path}`;
     const res=await fetch(url,{...options,headers:{Authorization:`Bearer ${state.token}`,...(options.body?{'Content-Type':'application/json'}:{}),...(options.headers||{})}});
     const body=await res.json().catch(()=>({}));
     if(!res.ok) {
@@ -1131,6 +1154,52 @@
       throw new Error(body.error?.message||`Errore Google Sheets HTTP ${res.status}`);
     }
     return body;
+  }
+  // Questo secondo spreadsheet NON è pubblicato e NON viene mai caricato via GViz.
+  async function loadAthletePrivate(){
+    if(!canManageFormation() || !CFG.athletesSpreadsheetId)return;
+    const response=await googleAPI(`/values/${encodeURIComponent("'DatiAtleti'!A:E")}?valueRenderOption=UNFORMATTED_VALUE`,{spreadsheetId:CFG.athletesSpreadsheetId});
+    const rows=response.values||[];
+    if(rows[0]?.join('|')!=='StagioneID|GiocatoreID|ScadenzaCertificato|CSIRegolare|AggiornatoIl')throw new Error('Il foglio privato DatiAtleti non ha le intestazioni previste.');
+    state.athleteRecords=rows.slice(1).map((r,i)=>({seasonId:String(r[0]||''),playerId:String(r[1]||''),expiry:padDate(r[2]),csi:one(r[3]),updatedAt:String(r[4]||''),_row:i+2})).filter(r=>r.seasonId&&r.playerId);
+    state.athleteReady=true;state.athleteError='';
+  }
+  function renderAthletes(){
+    const records=state.athleteRecords||[], season=state.seasonId;
+    const rows=playersInSeason(season).sort((a,b)=>name(a).localeCompare(name(b),'it'));
+    const configured=!!CFG.athletesSpreadsheetId;
+    const info=!configured?'<div class="status-banner">Configura <strong>athletesSpreadsheetId</strong> nel tuo config.js dopo aver eseguito aggiornaDatabaseV133(). Nessuna data medica viene salvata nel foglio pubblico.</div>':
+      !state.athleteReady?`<div class="status-banner">Impossibile leggere il foglio privato. ${esc(state.athleteError||'Controlla gli accessi Google.')}</div>`:'';
+    return intro('SOLO AMMINISTRATORE','Dati Atleti','Scadenze certificati medici e tesseramento CSI per la stagione selezionata.')+info+
+    `<div class="panel athlete-panel"><div class="panel-heading"><div><h2 class="panel-title">Idoneità e tesseramento · ${esc(activeSeason().name)}</h2><span class="panel-caption">Informazioni riservate: pubblicamente è mostrato soltanto lo stato automatico, non la data del certificato.</span></div></div>
+    <div class="table-shell"><table class="data-table athlete-table"><thead><tr><th>Giocatore</th><th>Scadenza certificato</th><th>CSI regolare</th><th>Stato calcolato</th><th></th></tr></thead><tbody>
+    ${rows.map(p=>{const r=records.find(x=>x.seasonId===season&&x.playerId===p.id);const expired=r?.expiry&&r.expiry<athleteToday();const id=r?calculateAutomaticStatus(r):'';return `<tr class="athlete-row" data-athlete="${esc(p.id)}"><td><strong>${esc(name(p))}</strong><small>#${esc(p.number)}</small></td><td><input type="date" data-athlete-expiry class="form-control" value="${esc(r?.expiry||'')}" ${!configured||!state.athleteReady?'disabled':''} aria-label="Scadenza certificato ${esc(name(p))}"></td><td><label class="athlete-flag"><input type="checkbox" data-athlete-csi ${r?.csi?'checked':''} ${!configured||!state.athleteReady?'disabled':''}><span>${r?.csi?'Sì':'No'}</span></label></td><td>${r?(id?statusBadge(id):`<span class="chip ${!r.expiry?'neutral':'success'}">${r.expiry?'Regolare':'Cert. da verificare'}</span>`):'<span class="chip neutral">Non compilato</span>'}${expired?'<small>Certificato scaduto</small>':''}</td><td><button type="button" class="btn btn-primary btn-small" data-action="save-athlete" data-id="${esc(p.id)}" ${!configured||!state.athleteReady?'disabled':''}>Salva</button></td></tr>`}).join('')}</tbody></table></div><p class="notice">La scadenza è considerata valida fino al giorno indicato. Se è scaduta, prevale “Cert. Med. Scaduto”; altrimenti, se CSI non è regolare, compare “Non Tesserato”. Gli stati manuali rimangono memorizzati e tornano visibili quando la posizione è regolare. Le date non vengono pubblicate.</p></div>`;
+  }
+  async function saveAthlete(playerId){
+    if(!canManageFormation())throw new Error('Operazione riservata all’amministratore.');
+    await requireMatchAdmin();
+    if(state.busy)throw new Error('È già in corso un salvataggio.');
+    if(!CFG.athletesSpreadsheetId || !state.athleteReady)throw new Error('Configura il foglio privato Dati Atleti.');
+    const row=document.querySelector(`.athlete-row[data-athlete="${CSS.escape(playerId)}"]`);if(!row)throw new Error('Giocatore non trovato.');
+    const expiry=row.querySelector('[data-athlete-expiry]').value;
+    if(expiry&&!/^\d{4}-\d{2}-\d{2}$/.test(expiry))throw new Error('Data certificato non valida.');
+    const csi=row.querySelector('[data-athlete-csi]').checked;
+    const idStatus=calculateAutomaticStatus({expiry,csi});
+    if((expiry&&expiry<athleteToday()&&!athleteStatusId('medical'))||(!csi&&!athleteStatusId('csi')))throw new Error('Nella scheda Stati mancano “Cert. Med. Scaduto” oppure “Non Tesserato”.');
+    const original=state.athleteRecords.find(r=>r.playerId===playerId&&r.seasonId===state.seasonId);
+    const now=new Date().toISOString();
+    const vals=[state.seasonId,playerId,expiry,csi?1:0,now];
+    const sheet=`${encodeURIComponent("'DatiAtleti'")}`;
+    const path=original?`/values/${sheet}!A${original._row}:E${original._row}?valueInputOption=RAW`:`/values/${sheet}!A:E:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`;
+    const previous=state.data.eligibility.find(r=>r.seasonId===state.seasonId&&r.playerId===playerId);
+    state.busy=true;
+    const saveButton=row.querySelector('[data-action="save-athlete"]');if(saveButton)saveButton.disabled=true;
+    try {
+      await googleAPI(path,{spreadsheetId:CFG.athletesSpreadsheetId,method:original?'PUT':'POST',body:JSON.stringify({values:[vals]})});
+      // Aggiorna SOLO la proiezione pubblica non sensibile; lo script giornaliero ripeterà la verifica.
+      await writeAtomic([{sheet:'IdoneitaRosa',...(previous?{row:previous._row}:{}),rows:[[state.seasonId,playerId,idStatus,now]]}]);
+      await refreshData();toast('Dati atleta salvati. Stato della rosa aggiornato.');
+    } finally {state.busy=false;if(saveButton?.isConnected)saveButton.disabled=false;}
   }
   async function loadPrivate() {
     const query=new URLSearchParams();SHEETS.forEach(s=>query.append('ranges',sheetRange(s)));
@@ -1148,8 +1217,9 @@
     expected.push([11,0,['StagioneID','Modulo','GiocatoriJSON','AggiornatoIl']]);
     expected.push([12,0,['PartitaID','StagioneID','Modulo','GiocatoriJSON','AggiornatoIl']]);
     expected.push([13,0,['ID','PartitaID','Ordine','MarcatoreID','AssistID','Tipo']]);
+    expected.push([14,0,['StagioneID','GiocatoreID','StatoAutomatico','AggiornatoIl']]);
     state.schemaReady=expected.every(([index,start,columns])=>columns.every((v,i)=>String(ranges[index]?.values?.[0]?.[start+i]||'').trim()===v));
-    if(!state.schemaReady)throw new Error('Il database richiede la migrazione v1.30: esegui aggiornaDatabaseV130 in Apps Script.');
+    if(!state.schemaReady)throw new Error('Il database richiede la migrazione v1.33: esegui aggiornaDatabaseV133 in Apps Script.');
     return decodeSheets(ranges.map(x=>(x.values||[]).slice(1)));
   }
   async function loadPublic() {
@@ -1157,7 +1227,7 @@
     return decodeSheets(tables);
   }
   function decodeSheets(arrays) {
-    const [p,s,m,l,b,t,rr,ss,cc,cp,cw,ff,fm,eg]=arrays;
+    const [p,s,m,l,b,t,rr,ss,cc,cp,cw,ff,fm,eg,ee]=arrays;
     const trimmed=rows=>(rows||[]).filter(row=>row?.some(x=>String(x??'').trim()!==''));
     const str=x=>String(x??'').trim();
     const players=(p||[]).map((r,i)=>({id:str(r[0]),number:num(r[1]),firstName:str(r[2]),lastName:str(r[3]),status:str(r[4])||'ATTIVO',role:str(r[5]),notes:str(r[6]),_row:i+2})).filter(x=>x.id);
@@ -1175,7 +1245,8 @@
     const formations=(ff||[]).map((r,i)=>{let slots={};try{const obj=JSON.parse(str(r[2])||'{}');if(obj && !Array.isArray(obj) && typeof obj==='object')slots=Object.fromEntries(Object.entries(obj).filter(([key,val])=>/^(?:GK|A1|D[1-3]|M[1-3]|B[1-5])$/.test(key)&&typeof val==='string'));if(Array.isArray(obj._convocati))slots._convocati=[...new Set(obj._convocati.filter(id=>typeof id==='string'))];}catch(_){/* record incompleto */}return {seasonId:str(r[0]),module:str(r[1]),slots,updatedAt:str(r[3]),_row:i+2};}).filter(x=>x.seasonId);
     const matchFormations=(fm||[]).map((r,i)=>{let slots={};try{const obj=JSON.parse(str(r[3])||'{}');if(obj&&typeof obj==='object'&&!Array.isArray(obj))slots=Object.fromEntries(Object.entries(obj).filter(([k,v])=>/^(?:GK|A1|D[1-3]|M[1-3]|B[1-5])$/.test(k)&&typeof v==='string'));if(Array.isArray(obj._convocati))slots._convocati=[...new Set(obj._convocati.filter(id=>typeof id==='string'))];}catch(_){}return {matchId:str(r[0]),seasonId:str(r[1]),module:str(r[2]),slots,updatedAt:str(r[4]),_row:i+2};}).filter(x=>x.matchId);
     const goalEvents=(eg||[]).map((r,i)=>({id:str(r[0]),matchId:str(r[1]),ordinal:positiveInt(r[2]),scorerId:str(r[3]),assistId:str(r[4]),type:str(r[5])||'GOL',_row:i+2})).filter(x=>x.id&&x.matchId).sort((a,b)=>a.ordinal-b.ordinal);
-    return {players,seasons,matches,lineups,goalEvents,baseline,memberships,leagueStandings,leagueFixtures,leagueWidgets,formations,matchFormations,roles:roles.length?roles:structuredClone(legacyRoles),states:states.length?states:structuredClone(legacyStates)};
+    const eligibility=(ee||[]).map((r,i)=>({seasonId:str(r[0]),playerId:str(r[1]),status:str(r[2]),updatedAt:str(r[3]),_row:i+2})).filter(r=>r.seasonId&&r.playerId);
+    return {players,seasons,matches,lineups,goalEvents,eligibility,baseline,memberships,leagueStandings,leagueFixtures,leagueWidgets,formations,matchFormations,roles:roles.length?roles:structuredClone(legacyRoles),states:states.length?states:structuredClone(legacyStates)};
   }
   async function refreshData() {
     if(!CFG.spreadsheetId) {state.source='demo';render();return;}
@@ -1183,6 +1254,9 @@
     try {
       const data=editor()?await loadPrivate():await loadPublic();
       state.data=data;state.source='drive';state.lastError='';
+      if(canManageFormation() && CFG.athletesSpreadsheetId){
+        try{await loadAthletePrivate();}catch(error){state.athleteRecords=[];state.athleteReady=false;state.athleteError=safeError(error);}
+      }else{state.athleteRecords=[];state.athleteReady=false;state.athleteError='';}
       if(!data.seasons.some(s=>s.id===state.seasonId))state.seasonId=(data.seasons.find(s=>/2026\s*\/\s*(?:27|2027)/i.test(s.name))||data.seasons[0]).id;
       render();
     } catch (error) {
@@ -1223,7 +1297,7 @@
     return googleAPI(':batchUpdate',{method:'POST',body:JSON.stringify({requests})});
   }
   async function writeAtomic(ops) {
-    if(!state.schemaReady)throw new Error('Aggiorna lo schema Google Sheets alla v1.30 eseguendo aggiornaDatabaseV130.');
+    if(!state.schemaReady)throw new Error('Aggiorna lo schema Google Sheets alla v1.33 eseguendo aggiornaDatabaseV133.');
     const requests=ops.filter(op=>op.rows?.length).map(op=>{
       const sheetId=state.sheetIds[op.sheet];
       if(sheetId===undefined)throw new Error('Scheda '+op.sheet+' mancante. Esegui aggiornaDatabaseV130 in Apps Script.');
@@ -1654,6 +1728,7 @@
     else if(action==='formation-pick')openFormationPicker(btn.dataset.slot);
     else if(action==='formation-assign'){changeFormationPlayer(btn.dataset.slot,btn.dataset.id);closeModal();}
     else if(action==='formation-remove'){changeFormationPlayer(btn.dataset.slot,'');closeModal();}
+    else if(action==='save-athlete')saveAthlete(btn.dataset.id).catch(e=>toast(safeError(e),true));
     else if(action==='save-formation')saveFormation().catch(e=>toast(safeError(e),true));
     else if(action==='reset-formation')resetFormation();
     else if(action==='match-formation'){const match=state.data.matches.find(m=>m.id===btn.dataset.id);if(match&&canManageFormation()){closeModal();state.seasonId=match.seasonId;state.formationMatchId=match.id;state.formationDraft=null;navigate('formation');}}
@@ -1706,6 +1781,7 @@
       }
     }
     if(event.target.matches('#match-form [data-goal-scorer],#match-form [data-goal-assist]')){event.target.closest('#match-form').dataset.goalEdited='1';drawGoalEditor(readGoalEditor());return;}
+    if(event.target.matches('[data-athlete-csi]')){const label=event.target.closest('.athlete-flag')?.querySelector('span');if(label)label.textContent=event.target.checked?'Sì':'No';return;}
     if(event.target.dataset.formationCalled){setFormationCalled(event.target.dataset.formationCalled,event.target.checked);return;}
     if(event.target.id==='formation-module'){changeFormationModule(event.target.value);return;}
     if(event.target.id==='formation-match'){state.formationMatchId=event.target.value;state.formationDraft=null;render();return;}
