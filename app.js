@@ -1,4 +1,4 @@
-/* EXPATS F.C. TEAM MANAGER — v1.34
+/* EXPATS F.C. TEAM MANAGER — v1.35
  * Frontend statico GitHub Pages + Google Sheets API (edit via OAuth) + GViz JSONP (pubblico).
  * Il controllo delle modifiche dipende dai permessi Google Drive sul foglio.
  */
@@ -6,12 +6,12 @@
   'use strict';
   const CFG = window.EXPATS_CONFIG;
   const SHEETS = ['Giocatori','Stagioni','Partite','Distinte','Pregresso','Tesseramenti','Ruoli','Stati','CampionatoClassifica','CampionatoPartite','CampionatoWidget','Formazioni','FormazioniPartite','EventiGol','IdoneitaRosa'];
-  const VERSION='v1.34';
+  const VERSION='v1.35';
   const state = {
     data: structuredClone(window.EXPATS_DEMO),
     source: 'demo', view: 'league', seasonId: '', rosterScope: 'season',
     sort: {key:'number',dir:1}, search:'', filter:'TUTTI', leagueTab:'calendario',
-    token: '', accountEmail:'', sheetIds: {}, schemaReady:false, busy: false, inlineSaving:false, lastError: '', formationDraft:null, formationMatchId:'', formationPickerSlot:null, athleteRecords:[],athleteError:'',athleteReady:false
+    token: '', accountEmail:'', sheetIds: {}, schemaReady:false, busy: false, inlineSaving:false, lastError: '', formationDraft:null, formationMatchId:'', formationPickerSlot:null, athleteRecords:[],athleteError:'',athleteReady:false, analyticsRows:null,analyticsError:'',analyticsDays:30,analyticsLoading:false
   };
   const $ = (sel, root=document) => root.querySelector(sel);
   const el = (name, attrs={}) => Object.assign(document.createElement(name), attrs);
@@ -284,10 +284,10 @@
   const NAV = [
     ['dashboard','◈','Panoramica'],['players','♙','Rosa giocatori'],['athletes','🩺','Dati Atleti'],
     ['matches','⚽','Partite e risultati'],['rankings','▥','Statistiche'],['league','🏆','Campionato'],
-    ['seasons','▦','Storico stagioni'],['formation','⚽','Formazione'],['settings','⚙','Configurazione']
+    ['seasons','▦','Storico stagioni'],['formation','⚽','Formazione'],['analytics','▤','Statistiche accessi'],['settings','⚙','Configurazione']
   ];
   function renderNav() {
-    $('#nav').innerHTML=NAV.filter(([id])=>id==='formation'||id==='athletes'?canManageFormation():id==='settings'?editor():true).map(([id,ico,label])=>`<button class="nav-item ${state.view===id?'active':''}" data-nav="${id}"><span class="nav-icon">${ico}</span>${esc(label)}</button>`).join('');
+    $('#nav').innerHTML=NAV.filter(([id])=>id==='formation'||id==='athletes'||id==='analytics'?canManageFormation():id==='settings'?editor():true).map(([id,ico,label])=>`<button class="nav-item ${state.view===id?'active':''}" data-nav="${id}"><span class="nav-icon">${ico}</span>${esc(label)}</button>`).join('');
     $('#current-label').textContent=NAV.find(x=>x[0]===state.view)?.[2] || 'Panoramica';
     $('#auth-btn').textContent=editor()?'Disconnetti Google':'Login';
     $('#auth-btn').className=editor()?'btn btn-secondary':'btn btn-outline';
@@ -479,7 +479,7 @@
   // v1.21: widget campionato in layout classico senza ridimensionamento.
   // Lo sfondo bianco esterno e' sostituito dall'effetto grafico CSS sul frame.
   // Non accediamo al DOM di Tuttocampo: rimane un iframe cross-origin.
-  // v1.34: i frame di partita sono una visualizzazione statica e ritagliata,
+  // v1.35: i frame di partita sono una visualizzazione statica e ritagliata,
   // senza filtri ai colori o agli stemmi. I risultati rimangono visibili
   // integralmente alla dimensione configurata; su touch non catturano lo scroll.
   // Il contenuto cross-origin non è misurabile automaticamente.
@@ -820,6 +820,113 @@
     return intro('ALBO STAGIONALE','Archivio stagioni','Ogni stagione conserva statistiche e risultati separati.',`<button class="btn btn-primary only-editor" data-action="new-season">＋ Nuova stagione</button>`)+banner()+
       `<div class="season-grid">${seasons.map(s=>{const t=seasonTotals(s.id);return `<div class="season-card"><div class="eyebrow">STAGIONE</div><h3>${esc(s.name)}</h3><p>${s.start?localeDate(s.start):'Inizio da definire'} ${s.end?`— ${localeDate(s.end)}`:''}</p><div class="mini-summary"><div><strong>${t.matches}</strong><span>Partite</span></div><div><strong>${t.goals}</strong><span>Gol singoli</span></div><div><strong>${t.assists}</strong><span>Assist</span></div></div><div class="season-bottom mt-20"><span class="chip ${s.id===state.seasonId?'success':'neutral'}">${s.id===state.seasonId?'Selezionata':'Archiviata'}</span><div class="season-card-buttons"><button class="btn btn-secondary btn-small only-editor" data-action="edit-season" data-id="${esc(s.id)}">Modifica</button><button class="btn btn-secondary btn-small" data-season="${esc(s.id)}">Visualizza</button></div></div></div>`}).join('')}</div><p class="notice mt-20">Il numero di stagioni conta i tesseramenti e le partecipazioni documentate. Modifica un giocatore per scegliere le sue stagioni; maglia, ruolo e stato sono propri di ogni stagione, anche quando visualizzi anni precedenti.</p>`;
   }
+
+  /* ANALYTICS v1.35 — visite anonime, consenso esplicito, nessun IP o identificativo permanente. */
+  const ANALYTICS_PAGES={dashboard:'Panoramica',players:'Rosa giocatori',matches:'Partite e risultati',
+    rankings:'Statistiche',league:'Campionato',seasons:'Storico stagioni',formation:'Formazione',
+    athletes:'Dati Atleti',settings:'Configurazione',analytics:'Statistiche accessi'};
+  const ANALYTICS_CHOICE_KEY='expats.analytics.choice.v135';
+  const ANALYTICS_SESSION_KEY='expats.analytics.session.v135';
+  const analyticsEnabled=()=>/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(String(CFG.analyticsWebAppUrl||'').trim());
+  function analyticsChoice(){try{return localStorage.getItem(ANALYTICS_CHOICE_KEY)||'';}catch(_){return '';}}
+  function analyticsSetChoice(choice){
+    try{localStorage.setItem(ANALYTICS_CHOICE_KEY,choice);}catch(_){}
+    analyticsConsentRender();
+    if(choice==='yes')analyticsTrackPage();
+  }
+  function analyticsResetChoice(){
+    try{localStorage.removeItem(ANALYTICS_CHOICE_KEY);sessionStorage.removeItem(ANALYTICS_SESSION_KEY);}catch(_){}
+    analyticsConsentRender();
+  }
+  function analyticsPrivacyDialog(){
+    modal('Privacy delle statistiche',`<p class="form-guide">Per migliorare l’app Expats F.C. registriamo, soltanto se lo consenti, la sezione consultata, la stagione visualizzata, data e ora, tipo di dispositivo e un codice casuale che dura per la sessione di questa scheda.</p><p class="form-guide">Non registriamo indirizzi IP, nomi, indirizzi email, posizione geografica o identificativi permanenti. I dati sono conservati in un foglio Google privato dell’amministratore, per massimo 90 giorni, e usati esclusivamente per le statistiche di utilizzo. Puoi rifiutare senza perdere funzionalità e cambiare scelta qui in ogni momento.</p><p class="form-guide">Contatto per le informazioni sul trattamento: ${esc(CFG.adminEmail||'amministratore Expats F.C.')}.</p>`,`<button class="btn btn-secondary" data-action="analytics-reject-close">Non consentire</button><button class="btn btn-primary" data-action="analytics-accept-close">Consenti</button>`);
+  }
+  function analyticsConsentRender(){
+    const root=$('#analytics-consent-root');if(!root)return;
+    if(!analyticsEnabled()||analyticsChoice()){root.replaceChildren();return;}
+    root.innerHTML=`<div class="analytics-consent" role="region" aria-label="Preferenze statistiche"><div><strong>Statistiche anonime di consultazione</strong><p>Possiamo registrare pagina visitata, data e ora, tipo di dispositivo e un codice temporaneo della sessione. Non raccogliamo IP, nomi o email. Puoi rifiutare e consultare comunque l’app.</p></div><div class="analytics-consent-actions"><button type="button" class="btn btn-secondary" data-action="analytics-reject">Rifiuta</button><button type="button" class="btn btn-primary" data-action="analytics-accept">Consenti</button></div></div>`;
+  }
+  function analyticsSession(){
+    try{
+      let key=sessionStorage.getItem(ANALYTICS_SESSION_KEY);
+      if(!key){key=typeof crypto!=='undefined'&&crypto.randomUUID?crypto.randomUUID():uid('visit');sessionStorage.setItem(ANALYTICS_SESSION_KEY,key);}
+      return key;
+    }catch(_){return uid('visit');}
+  }
+  function analyticsDevice(){
+    const ua=navigator.userAgent||'';
+    return /iPad|Tablet|Android(?!.*Mobile)/i.test(ua)?'Tablet':/Android|iPhone|iPod|Mobile/i.test(ua)?'Smartphone':'Computer';
+  }
+  let lastAnalyticsPage='',lastAnalyticsAt=0;
+  function analyticsTrackPage(){
+    if(!analyticsEnabled()||analyticsChoice()!=='yes')return;
+    const page=state.view==='league'?(state.leagueTab==='classifica'?'league-classifica':'league-risultati'):state.view;
+    if(!ANALYTICS_PAGES[state.view])return;
+    const now=Date.now();if(page===lastAnalyticsPage&&now-lastAnalyticsAt<3000)return;
+    lastAnalyticsPage=page;lastAnalyticsAt=now;
+    const payload=JSON.stringify({action:'page_view',page,session:analyticsSession(),device:analyticsDevice(),season:String(activeSeason()?.name||'').slice(0,25)});
+    try{
+      const blob=new Blob([payload],{type:'text/plain;charset=UTF-8'});
+      if(navigator.sendBeacon&&navigator.sendBeacon(CFG.analyticsWebAppUrl,blob))return;
+    }catch(_){}
+    fetch(CFG.analyticsWebAppUrl,{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain'},body:payload,keepalive:true}).catch(()=>{});
+  }
+  async function loadAnalytics(){
+    if(!canManageFormation())return;
+    if(!CFG.analyticsSpreadsheetId){state.analyticsError='Completa analyticsSpreadsheetId nel config.js dopo la migrazione v1.35.';state.analyticsRows=null;render();return;}
+    if(state.analyticsLoading)return;
+    state.analyticsLoading=true;state.analyticsError='';render();
+    try{
+      const res=await googleAPI(`/values/${encodeURIComponent("'Visite'!A:E")}?valueRenderOption=FORMATTED_VALUE`,{spreadsheetId:CFG.analyticsSpreadsheetId});
+      const rows=res.values||[];
+      if((rows[0]||[]).slice(0,5).join('|')!=='Ora|Sezione|Stagione|Sessione|Dispositivo')throw new Error('Intestazioni Analytics non compatibili. Esegui aggiornaDatabaseV135().');
+      state.analyticsRows=rows.slice(1).filter(r=>r[0]&&r[1]).map(r=>({at:String(r[0]),page:String(r[1]),season:String(r[2]||''),session:String(r[3]||''),device:String(r[4]||'')}));
+    }catch(e){state.analyticsRows=null;state.analyticsError=safeError(e);}
+    finally{state.analyticsLoading=false;render();}
+  }
+  function analyticsFilteredRows(){
+    const cut=new Date();cut.setHours(0,0,0,0);cut.setDate(cut.getDate()-state.analyticsDays+1);
+    const threshold=[cut.getFullYear(),String(cut.getMonth()+1).padStart(2,'0'),String(cut.getDate()).padStart(2,'0')].join('-');
+    return (state.analyticsRows||[]).filter(r=>r.at.slice(0,10)>=threshold);
+  }
+  function analyticsLabel(key){
+    if(key==='league-classifica')return 'Campionato · Classifica';
+    if(key==='league-risultati')return 'Campionato · Risultati';
+    return ANALYTICS_PAGES[key]||key;
+  }
+  function analyticsBar(label,count,max){
+    return `<div class="analytics-bar-row"><span>${esc(label)}</span><div class="analytics-bar-track"><i style="width:${Math.max(0,100*count/Math.max(1,max))}%"></i></div><strong>${count}</strong></div>`;
+  }
+  function renderAnalytics(){
+    if(!canManageFormation())return '';
+    let head=intro('AMMINISTRAZIONE','Statistiche accessi','Visite anonime e pagine consultate, con orari Europe/Rome e dati privati.',`<button type="button" class="btn btn-secondary" data-action="analytics-refresh">↻ Aggiorna</button><button type="button" class="btn btn-secondary" data-action="analytics-export">↓ Esporta CSV</button>`);
+    if(!analyticsEnabled()||!CFG.analyticsSpreadsheetId)return head+`<div class="panel"><h2 class="panel-title">Attivazione necessaria</h2><p class="form-guide">Esegui <strong>aggiornaDatabaseV135()</strong> in Apps Script, pubblica la Web App per ricevere visite anonime e inserisci nel tuo config.js <code>analyticsSpreadsheetId</code> e <code>analyticsWebAppUrl</code>. Nessun dato viene registrato prima della configurazione.</p></div>`;
+    if(state.analyticsLoading)return head+`<div class="panel">Caricamento statistiche…</div>`;
+    if(state.analyticsError)return head+`<div class="panel"><p class="import-error">${esc(state.analyticsError)}</p><p class="form-guide">Il foglio Analytics deve essere privato e accessibile all’account Google amministratore.</p></div>`;
+    if(!state.analyticsRows)return head+`<div class="panel"><p class="form-guide">Premi <strong>Aggiorna</strong> per caricare gli accessi dal foglio privato.</p></div>`;
+    const rows=analyticsFilteredRows(), sessions=new Set(rows.map(r=>r.session).filter(Boolean));
+    const pageCount=new Map(),hourCount=new Map(),dayCount=new Map(),deviceCount=new Map();
+    for(const r of rows){
+      for(const [map,k] of [[pageCount,r.page],[hourCount,r.at.slice(11,13)],[dayCount,r.at.slice(0,10)],[deviceCount,r.device]])map.set(k,(map.get(k)||0)+1);
+    }
+    const bestPages=[...pageCount.entries()].sort((a,b)=>b[1]-a[1]);
+    const bestHours=[...hourCount.entries()].sort((a,b)=>Number(a[0])-Number(b[0]));
+    const devices=[...deviceCount.entries()].sort((a,b)=>b[1]-a[1]);
+    const cards=[['VISUALIZZAZIONI',rows.length],['SESSIONI',sessions.size],['PAGINE / SESSIONE',sessions.size?(rows.length/sessions.size).toFixed(1):'0'],['SEZIONI VISITATE',pageCount.size]];
+    head+=`<div class="analytics-period">${[7,30,90].map(n=>`<button class="btn ${state.analyticsDays===n?'btn-primary':'btn-secondary'} btn-small" data-action="analytics-days" data-days="${n}">${n} giorni</button>`).join('')}</div>`;
+    head+=`<div class="analytics-kpis">${cards.map(([label,val])=>`<div class="analytics-kpi"><small>${label}</small><strong>${val}</strong></div>`).join('')}</div>`;
+    head+=`<div class="analytics-panels"><section class="panel"><div class="panel-heading"><h2 class="panel-title">Pagine più consultate</h2></div>${bestPages.length?bestPages.map(([k,n])=>analyticsBar(analyticsLabel(k),n,bestPages[0][1])).join(''):'<p class="form-guide">Nessuna visita nel periodo selezionato.</p>'}</section><section class="panel"><div class="panel-heading"><h2 class="panel-title">Fasce orarie</h2></div>${bestHours.length?bestHours.map(([hour,n])=>analyticsBar(`${hour}:00–${hour}:59`,n,Math.max(...hourCount.values()))).join(''):'<p class="form-guide">Nessuna visita.</p>'}</section></div>`;
+    head+=`<div class="analytics-panels mt-20"><section class="panel"><div class="panel-heading"><h2 class="panel-title">Consultazioni per giorno</h2></div>${[...dayCount.entries()].sort((a,b)=>a[0].localeCompare(b[0])).map(([d,n])=>analyticsBar(d.split('-').reverse().join('/'),n,Math.max(...dayCount.values()))).join('')||'<p class="form-guide">Nessun dato.</p>'}</section><section class="panel"><div class="panel-heading"><h2 class="panel-title">Dispositivi</h2></div>${devices.map(([d,n])=>analyticsBar(d,n,devices[0][1])).join('')||'<p class="form-guide">Nessun dato.</p>'}</section></div>`;
+    head+=`<section class="panel mt-20"><div class="panel-heading"><h2 class="panel-title">Ultime consultazioni</h2><span class="panel-caption">Orario italiano · Massimo 60 righe</span></div><div class="table-shell"><table class="data-table analytics-table"><thead><tr><th>Data e ora</th><th>Sezione</th><th>Stagione</th><th>Dispositivo</th><th>Sessione (temporanea)</th></tr></thead><tbody>${[...rows].reverse().slice(0,60).map(r=>`<tr><td>${esc(r.at)}</td><td>${esc(analyticsLabel(r.page))}</td><td>${esc(r.season)}</td><td>${esc(r.device)}</td><td>${esc(r.session.slice(0,8))}…</td></tr>`).join('')||'<tr><td colspan="5">Nessuna consultazione nel periodo.</td></tr>'}</tbody></table></div><p class="notice">Solo visite per cui è stato dato il consenso. Niente indirizzi IP, nominativi o email; l’ID di sessione è temporaneo e non identifica una persona. I log vengono conservati per un massimo di 90 giorni. I dati possono essere incompleti se il browser blocca l’invio o se si esauriscono le quote gratuite Google.</p><button class="btn btn-secondary btn-small" data-action="analytics-reset">Modifica consenso statistiche su questo browser</button></section>`;
+    return head;
+  }
+  function analyticsExportCSV(){
+    if(!canManageFormation()||!state.analyticsRows)return;
+    const csv=[['Ora','Sezione','Stagione','Sessione','Dispositivo'],...analyticsFilteredRows().map(r=>[r.at,analyticsLabel(r.page),r.season,r.session,r.device])].map(row=>row.map(v=>'"'+String(v).replaceAll('"','""')+'"').join(';')).join('\r\n');
+    const url=URL.createObjectURL(new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'}));
+    const a=document.createElement('a');a.href=url;a.download=`Expats-Accessi-${state.analyticsDays}giorni.csv`;document.body.append(a);a.click();a.remove();URL.revokeObjectURL(url);
+  }
+
   function renderSettings() {
     return intro('CONNESSIONE E DATI','Configurazione','Gestione del collegamento con il foglio Google e stato del progetto.')+banner()+
     `<div class="two-cards"><div class="panel"><div class="panel-heading"><h2 class="panel-title">🔐 Stato connessione</h2></div><div class="breakdown"><div><span>Versione applicazione</span><strong>${VERSION}</strong></div><div><span>Origine dati</span><strong>${state.source==='drive'?'Google Drive':'Demo locale'}</strong></div><div><span>Modalità</span><strong>${editor()?'Google OAuth attivo':'Sola consultazione'}</strong></div><div><span>Archivio</span><strong>${CFG.spreadsheetId?'Configurato':'Da configurare'}</strong></div></div><p class="notice">Le autorizzazioni di scrittura non sono affidate al sito GitHub: le controlla Google tramite i permessi del foglio.</p></div>
@@ -829,13 +936,13 @@
   }
   function render() {
     if(!state.data.seasons.some(s=>s.id===state.seasonId)) state.seasonId=defaultSeason()?.id||'';
-    if((state.view==='formation'||state.view==='athletes')&&!canManageFormation())state.view='league';
+    if((state.view==='formation'||state.view==='athletes'||state.view==='analytics')&&!canManageFormation())state.view='league';
     if(state.view==='settings'&&!editor())state.view='league';
     renderNav();
-    const content=({dashboard:renderDashboard,players:renderPlayers,matches:renderMatches,rankings:renderRankings,league:renderLeague,seasons:renderSeasons,formation:renderFormation,athletes:renderAthletes,settings:renderSettings}[state.view]||renderDashboard)();
+    const content=({dashboard:renderDashboard,players:renderPlayers,matches:renderMatches,rankings:renderRankings,league:renderLeague,seasons:renderSeasons,formation:renderFormation,athletes:renderAthletes,analytics:renderAnalytics,settings:renderSettings}[state.view]||renderDashboard)();
     $('#main-content').innerHTML=content;
   }
-  function navigate(view) { if((view==='formation'||view==='athletes')&&!canManageFormation())return;if(view==='settings'&&!editor())return;state.view=view;render();window.scrollTo({top:0,behavior:'smooth'}); }
+  function navigate(view) { if((view==='formation'||view==='athletes'||view==='analytics')&&!canManageFormation())return;if(view==='settings'&&!editor())return;const changed=state.view!==view;state.view=view;render();if(view==='analytics' && changed)loadAnalytics();if(changed)analyticsTrackPage();window.scrollTo({top:0,behavior:'smooth'}); }
   function closeModal() { $('#modal-root').replaceChildren();document.body.style.overflow=''; }
   function modal(title,body,footer='',wide=false) {
     $('#modal-root').innerHTML=`<div class="modal-backdrop" data-backdrop="true"><div class="modal ${wide?'wide':''}" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div class="modal-header"><h2 id="modal-title">${esc(title)}</h2><button class="modal-close" data-action="close-modal" aria-label="Chiudi finestra">×</button></div><div class="modal-body">${body}</div>${footer?`<div class="modal-footer">${footer}</div>`:''}</div></div>`;
@@ -1274,7 +1381,7 @@
   }
   async function auth() {
     if(editor()) {
-      const token=state.token;state.token='';state.accountEmail='';state.sheetIds={};state.schemaReady=false;
+      const token=state.token;state.token='';state.accountEmail='';state.sheetIds={};state.schemaReady=false;state.analyticsRows=null;state.analyticsError='';
       try{window.google?.accounts.oauth2.revoke(token,()=>{});}catch(_){}
       await refreshData();toast('Sessione Google disconnessa.');return;
     }
@@ -1728,6 +1835,15 @@
     if(btn.dataset.season){state.seasonId=btn.dataset.season;navigate('dashboard');return;}
     const action=btn.dataset.action;
     if(action==='close-modal')closeModal();
+    else if(action==='analytics-accept')analyticsSetChoice('yes');
+    else if(action==='analytics-reject')analyticsSetChoice('no');
+    else if(action==='analytics-reset')analyticsResetChoice();
+    else if(action==='analytics-privacy')analyticsPrivacyDialog();
+    else if(action==='analytics-reject-close'){analyticsSetChoice('no');closeModal();}
+    else if(action==='analytics-accept-close'){analyticsSetChoice('yes');closeModal();}
+    else if(action==='analytics-refresh')loadAnalytics();
+    else if(action==='analytics-export')analyticsExportCSV();
+    else if(action==='analytics-days'){state.analyticsDays=Number(btn.dataset.days)||30;render();}
     else if(action==='formation-confirm-called')confirmFormationCalled();
     else if(action==='formation-edit-called'){ensureFormationDraft().confirmed=false;render();}
     else if(action==='formation-called-all')formationCalledAll(true);
@@ -1741,7 +1857,7 @@
     else if(action==='match-formation'){const match=state.data.matches.find(m=>m.id===btn.dataset.id);if(match&&canManageFormation()){closeModal();state.seasonId=match.seasonId;state.formationMatchId=match.id;state.formationDraft=null;navigate('formation');}}
     else if(action==='league-widgets')leagueWidgetsDialog();
     else if(action==='league-widgets-save')leagueWidgetsSave().catch(e=>toast(safeError(e),true));
-    else if(action==='league-tab'){state.leagueTab=btn.dataset.tab==='calendario'?'calendario':'classifica';render();}
+    else if(action==='league-tab'){state.leagueTab=btn.dataset.tab==='calendario'?'calendario':'classifica';render();analyticsTrackPage();}
     else if(action==='league-import')leagueImportDialog(btn.dataset.kind);
     else if(action==='league-validate')leagueValidate(btn.dataset.kind);
     else if(action==='league-save')leagueSave(btn.dataset.kind);
@@ -1794,7 +1910,7 @@
     if(event.target.id==='formation-match'){state.formationMatchId=event.target.value;state.formationDraft=null;render();return;}
     if(event.target.dataset.formationSlot){changeFormationPlayer(event.target.dataset.formationSlot,event.target.value);return;}
     if(event.target.id==='confirm-match-deletion'){const button=$('#confirm-delete-match-btn');if(button)button.disabled=!event.target.checked;}
-    if(event.target.id==='season-select'){state.seasonId=event.target.value;state.formationMatchId='';state.formationDraft=null;render();}
+    if(event.target.id==='season-select'){state.seasonId=event.target.value;state.formationMatchId='';state.formationDraft=null;render();analyticsTrackPage();}
     else if(event.target.id==='roster-scope'){state.rosterScope=event.target.value;$('#players-tbody').innerHTML=playersTable();}
     else if(event.target.id==='league-csv-file'){const file=event.target.files?.[0];if(file)file.text().then(text=>{const input=$('#league-csv-paste');if(input){input.value=text;state.leagueImport=null;$('#league-import-save').disabled=true;$('#league-import-preview').replaceChildren();}}).catch(e=>toast(safeError(e),true));}
     else if(event.target.id==='csv-file'){const file=event.target.files?.[0];if(file){file.text().then(text=>{const target=$('#csv-paste');if(target){target.value=text;state.importPreview=null;$('#execute-import').disabled=true;$('#import-preview').replaceChildren();}}).catch(e=>toast(safeError(e),true));}}
@@ -1834,5 +1950,7 @@
   $('#auth-btn').addEventListener('click',auth);
   $('#refresh-btn').addEventListener('click',refreshData);
   render();
+  analyticsConsentRender();
+  analyticsTrackPage();
   if(CFG.spreadsheetId) refreshData();
 })();
