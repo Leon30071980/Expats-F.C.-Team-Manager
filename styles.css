@@ -531,3 +531,61 @@ button,input,select,textarea{font-family:inherit}
 .league-embed-ultimapartita,.league-embed-prossimapartita{filter:none!important;mix-blend-mode:normal!important;opacity:1!important}
 @media(max-width:1120px){.page-intro{grid-template-columns:minmax(0,1fr) auto!important}.intro-season-center{grid-column:2}.intro-tools{grid-column:1/-1;justify-self:start!important;justify-content:flex-start!important}}
 @media(max-width:720px){.page-intro{grid-template-columns:1fr!important;gap:9px}.intro-season-center{grid-column:1;justify-self:center;width:min(100%,340px)}.intro-season-center .page-season{width:100%;justify-content:center}.intro-tools{grid-column:1;justify-self:stretch!important}.formation-bench-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.formation-bench-slot:last-child{grid-column:1/-1}.formation-match-picker{min-width:0;width:100%}.formation-match-picker select{max-width:100%}}
+
+/* v1.30: selettore proposta A, formazione e panchina accanto al campo. */
+.formation-layout-v130{display:grid;grid-template-columns:minmax(0,1fr) minmax(210px,280px);align-items:start;gap:16px}
+.formation-position-v130{width:130px;min-height:99px;gap:3px;padding:6px 7px;background:#062f2acb;border:1px solid #9bcfb57a}
+.formation-position-v130 .formation-selected-name{font-size:11px;max-width:116px;line-height:1.22;white-space:normal;overflow-wrap:anywhere}
+.formation-position-v130 .formation-position-label{font-size:9px}
+.formation-pick-button{background:#193f50;color:#d2ffe7;border:1px solid #72b5a0;border-radius:7px;padding:5px 7px;font-size:10px;line-height:1.2;font-weight:800;cursor:pointer;white-space:nowrap}
+.formation-pick-button:hover,.formation-pick-button:focus-visible{background:#32745f;color:white;outline:2px solid #99ead0;outline-offset:1px}
+.formation-layout-v130 .formation-bench-panel{margin:0;padding:14px;position:static}
+.formation-layout-v130 .formation-bench-grid{display:flex;flex-direction:column;gap:10px;margin:12px 0 16px}
+.formation-layout-v130 .formation-bench-slot{display:flex;flex-direction:row;align-items:center;justify-content:flex-start;gap:9px;text-align:left;padding:8px;min-width:0}
+.formation-layout-v130 .formation-bench-copy{display:flex;flex-direction:column;align-items:flex-start;gap:5px;min-width:0;flex:1}
+.formation-layout-v130 .formation-bench-copy strong{color:#f4dba4;font-size:11px}
+.formation-layout-v130 .bench-player-name{font-size:11px;text-align:left;min-width:0;max-width:100%}
+.formation-choice-list{display:flex;flex-direction:column;gap:7px;max-height:52vh;overflow-y:auto}
+.formation-choice{display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:#182d43;border:1px solid #3b526b;color:#fff;border-radius:10px;padding:9px;min-height:61px}
+.formation-choice:hover:not(:disabled){background:#264663;border-color:#75cba8}
+.formation-choice.is-current{border-color:#dcc27e;background:#52452266}
+.formation-choice>span:nth-child(2){display:flex;flex:1;flex-direction:column;min-width:0;gap:4px}
+.formation-choice small{color:#abc3d7;font-size:11px;overflow-wrap:anywhere}
+.formation-choice-hint{font-size:10px;color:#87ecc1;max-width:95px;text-align:right}
+.formation-choice:disabled{opacity:.4}
+/* Matita nel gruppo dei ruoli, mai dentro la colonna Stato. */
+.roster-table .roles-cell-inner{width:100%!important;max-width:100%!important;height:auto!important;min-height:45px!important;overflow:visible!important}
+.roster-table .role-badge-strip{width:100%!important;max-width:100%!important;flex-direction:row!important;flex-wrap:wrap!important;align-items:center!important;align-content:center!important;justify-content:flex-start!important;overflow:visible!important;gap:3px!important}
+.roster-table .role-pill{max-width:100%!important;font-size:9px!important;padding:3px 5px!important}
+.roster-table .role-editor-button{position:static!important;display:inline-flex!important;align-items:center;justify-content:center;flex:0 0 21px!important;width:21px!important;height:21px!important;min-height:0!important;margin:0 0 0 2px!important;padding:0!important;font-size:12px!important;vertical-align:middle;z-index:0}
+.roster-table .status-cell .inline-select{margin:0!important;transform:none!important;position:static!important}
+/* Reti individuali e assist: informazioni leggibili e strutturate. */
+.match-line-main{flex:1;min-width:0}
+.match-event-summary{display:flex;flex-wrap:wrap;gap:7px;margin-top:9px}
+.goal-event-summary{display:flex;flex-wrap:wrap;gap:5px 8px;align-items:center;background:#1c3149;border:1px solid #32506c;border-radius:8px;padding:7px 9px;font-size:11px;line-height:1.35}
+.goal-event-number{font-weight:850;color:#f7d48e;white-space:nowrap}
+.goal-event-assist{color:#9adcc7;white-space:nowrap}
+.match-legacy-summary{display:grid;gap:5px;margin-top:10px;font-size:12px}
+.match-legacy-summary>div{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:baseline}
+.match-legacy-summary strong{color:#eec878;min-width:78px}
+.match-legacy-summary span{color:#c1d8f0;line-height:1.5}
+.goal-editor-field{padding:14px;background:#142a42;border:1px solid #345777;border-radius:12px}
+.goal-editor-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.goal-editor-heading label{color:#f5d28e!important;font-size:13px!important}
+#goal-events-count{color:#a9c9e5;font-size:11px}
+.goal-editor-list{display:flex;flex-direction:column;gap:8px;max-height:420px;overflow-y:auto;margin-top:10px}
+.goal-entry{display:grid;grid-template-columns:75px minmax(0,1fr) minmax(0,1fr);gap:10px;align-items:center;background:#192e45;border:1px solid #37516e;border-radius:9px;padding:9px}
+.goal-order{font-weight:900;color:#edd08d;font-size:12px}
+.goal-entry label{display:flex;flex-direction:column;gap:5px;min-width:0}
+.goal-entry .form-control{font-size:12px;padding:8px;min-width:0}
+/* Ripristina contenuto originale nei widget della classifica e dei risultati. */
+.league-embed-classifica,.league-embed-risultati{filter:none!important;-webkit-filter:none!important;mix-blend-mode:normal!important;opacity:1!important;background:#fff!important}
+@media(max-width:980px){.formation-layout-v130{grid-template-columns:1fr}.formation-layout-v130 .formation-bench-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr))}.formation-layout-v130 .formation-bench-slot{flex-direction:column;text-align:center}.formation-layout-v130 .formation-bench-copy{align-items:center}.formation-layout-v130 .bench-player-name{text-align:center}}
+@media(max-width:620px){.formation-position-v130{width:99px;min-height:85px;padding:4px 3px;gap:2px}.formation-position-v130 .formation-selected-name{font-size:9px;max-width:95px}.formation-pick-button{font-size:9px;padding:4px 5px}.formation-layout-v130 .formation-bench-grid{grid-template-columns:1fr}.formation-layout-v130 .formation-bench-slot{flex-direction:row}.formation-layout-v130 .formation-bench-copy{align-items:flex-start}.formation-layout-v130 .bench-player-name{text-align:left}.goal-entry{grid-template-columns:1fr}.goal-editor-heading{align-items:flex-start;flex-direction:column}.result-line{align-items:flex-start;flex-direction:column}.results-head{align-self:flex-end}}
+
+/* Distinta semplificata: gol e assist si assegnano per rete, non due volte. */
+.roster-form .roster-header,.roster-form .roster-entry{grid-template-columns:minmax(175px,1.6fr) minmax(110px,125px) 50px 50px 54px 54px!important;min-width:585px!important;gap:8px!important}
+.roster-form .roster-header span:first-child{text-align:left}
+@media(max-width:620px){.roster-form .roster-header,.roster-form .roster-entry{min-width:585px!important}}
+/* I nomi dei ruoli restano interi: eventuali badge successivi vanno a capo. */
+.roster-table .role-pill{max-width:125px!important;white-space:nowrap!important;overflow-wrap:normal!important;word-break:normal!important;font-size:9px!important}
