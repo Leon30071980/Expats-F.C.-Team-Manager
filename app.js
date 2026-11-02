@@ -1,4 +1,4 @@
-/* EXPATS F.C. TEAM MANAGER — v1.26
+/* EXPATS F.C. TEAM MANAGER — v1.27
  * Frontend statico GitHub Pages + Google Sheets API (edit via OAuth) + GViz JSONP (pubblico).
  * Il controllo delle modifiche dipende dai permessi Google Drive sul foglio.
  */
@@ -6,11 +6,11 @@
   'use strict';
   const CFG = window.EXPATS_CONFIG;
   const SHEETS = ['Giocatori','Stagioni','Partite','Distinte','Pregresso','Tesseramenti','Ruoli','Stati','CampionatoClassifica','CampionatoPartite','CampionatoWidget'];
-  const VERSION='v1.26';
+  const VERSION='v1.27';
   const state = {
     data: structuredClone(window.EXPATS_DEMO),
-    source: 'demo', view: 'dashboard', seasonId: '', rosterScope: 'season',
-    sort: {key:'number',dir:1}, search:'', filter:'TUTTI', leagueTab:'classifica',
+    source: 'demo', view: 'league', seasonId: '', rosterScope: 'season',
+    sort: {key:'number',dir:1}, search:'', filter:'TUTTI', leagueTab:'calendario',
     token: '', accountEmail:'', sheetIds: {}, schemaReady:false, busy: false, inlineSaving:false, lastError: ''
   };
   const $ = (sel, root=document) => root.querySelector(sel);
@@ -268,13 +268,15 @@
     $('#auth-btn').textContent=editor()?'Disconnetti Google':'Accedi con Google';
     $('#auth-btn').className=editor()?'btn btn-secondary':'btn btn-outline';
     $('#live-dot').className='online-indicator '+(state.source==='drive'?'connected':'');
-    $('#sidebar-source').textContent=state.source==='demo'?'Anteprima dimostrativa':'Collegato a Google Drive';
-    $('#sidebar-caption').textContent=editor()?'Sessione Google autorizzata':state.source==='demo'?'Dati non sincronizzati':'Consultazione pubblica';
+    $('#sidebar-source').textContent=state.source==='demo'?'Anteprima dimostrativa':editor()?'Google Drive connesso':'Expats F.C.';
+    $('#sidebar-caption').textContent=editor()?'Gestione autorizzata':state.source==='demo'?'Dati dimostrativi':'Campionato e statistiche';
     document.body.classList.toggle('is-editor',editor());
   }
   function banner() {
     if(state.source==='demo') return `<div class="status-banner"><span>⚠</span><span><strong>Modalità anteprima.</strong> I dati sono quelli trascritti dalla schermata e non vengono salvati su Drive. Configura Google Sheets per attivare la sincronizzazione.${state.lastError?' Errore collegamento: '+esc(state.lastError):''}</span></div>`;
-    return `<div class="status-banner success"><span>●</span><span>Dati condivisi da Google Drive · ${editor()?'Sessione Google attiva per la gestione':'Accesso pubblico in sola lettura'}</span></div>`;
+    // I visitatori consultano i dati senza messaggi tecnici sulla sorgente.
+    if(!editor())return '';
+    return `<div class="status-banner success"><span>●</span><span>Accesso amministratore Google attivo</span></div>`;
   }
   function intro(kicker,title,desc,actions='') {
     return `<div class="page-intro"><div><div class="eyebrow">${esc(kicker)}</div><h1 class="page-title">${esc(title)}</h1><p class="page-subtitle">${esc(desc)}</p></div>${actions?`<div class="intro-buttons">${actions}</div>`:''}</div>`;
@@ -454,7 +456,7 @@
       `<button class="btn btn-primary only-editor" data-action="league-widgets">⚙ Collega widget</button>`);
     const historicSource=isLeague2025_26(season.id);
     const historicLinks=`<div class="league-source-links"><a href="${HISTORICAL_2025_26_CLASSIFICA}" target="_blank" rel="noopener noreferrer">Fonte classifica 2025/26 ↗</a><a href="${HISTORICAL_2025_26_CALENDARIO}" target="_blank" rel="noopener noreferrer">Fonte calendario 2025/26 ↗</a></div>`;
-    const sourcePanel=historicSource?
+    const sourcePanel=!editor()?'':historicSource?
       `<div class="league-source"><div><strong>Stagione 2025/26 · Girone B</strong><p>Fonti storiche corrette: classifica e calendario del Girone B Calcio a 7 Open B Parma. Le pagine normali di Tuttocampo non sono widget incorporabili: per visualizzare i dati qui occorre collegare i widget ufficiali di quel girone oppure importarli in Google Sheets. Non saranno mostrati i vecchi widget del girone sbagliato. ${wrongHistoricWidgetSaved(season.id)?'Il vecchio codice risulta ancora salvato ma viene ignorato.':''} Le statistiche individuali restano inalterate.</p>${historicLinks}<div class="league-import-actions only-editor"><button type="button" class="btn btn-secondary btn-small" data-action="league-import" data-kind="classifica">Importa classifica</button><button type="button" class="btn btn-secondary btn-small" data-action="league-import" data-kind="calendario">Importa calendario</button></div></div><span class="chip neutral">${widgetMode?'Widget collegato':'Fonti Girone B'}</span></div>`:
       (widgetMode?
       `<div class="league-source"><div><strong>Campionato integrato</strong><p>Classifica e risultati vengono visualizzati da Tuttocampo direttamente nell'app; i dati individuali degli Expats non vengono modificati.</p></div><span class="chip success">Widget collegati</span></div>`:
@@ -677,7 +679,16 @@
     const m=state.data.matches.find(m=>m.id===id);if(!m)return;
     const lines=state.data.lineups.filter(l=>l.matchId===id).sort((a,b)=>num(seasonPlayer(state.data.players.find(p=>p.id===a.playerId),m.seasonId)?.number)-num(seasonPlayer(state.data.players.find(p=>p.id===b.playerId),m.seasonId)?.number));
     const f=fixture(m);
-    const body=`<div class="eyebrow">${localeDate(m.date)} · ${esc(m.competition||'Partita')}</div><h3 class="page-title" style="font-size:27px">${esc(f.home)} <span class="muted">vs</span> ${esc(f.away)} <span class="accent-green">${f.homeGoals} — ${f.awayGoals}</span></h3><p class="page-subtitle">${m.venue==='T'?'Trasferta':'Casa'} · ${resultLabel(matchResult(m))}</p>${positiveInt(m.ownGoalsFor)?`<p class="modal-explainer">⚽ Autogol a favore: <strong>${positiveInt(m.ownGoalsFor)}</strong> (non assegnati ai marcatori).</p>`:''}${m.notes?`<p class="modal-explainer">${esc(m.notes)}</p>`:''}${m.noStats?'<p class="notice">Questa distinta è archiviata ma NON contribuisce alle statistiche dei giocatori.</p>':''}<hr class="soft-rule"><h3 class="panel-title">Distinta e statistiche</h3><div class="table-shell mt-20"><table class="data-table" style="min-width:560px"><thead><tr><th>Giocatore</th><th>Ruolo partita</th><th>Conv.</th><th>Pres.</th><th>Gol</th><th>Assist</th><th>Gialli</th><th>Rossi</th></tr></thead><tbody>${lines.map(l=>{const p=state.data.players.find(p=>p.id===l.playerId);return `<tr><td>${esc(p?name(p):'Giocatore non trovato')}</td><td>${matchKeeper(l,m.seasonId)?'🧤 Portiere':'Movimento'}</td><td>${one(l.called)?'✓':'—'}</td><td>${one(l.played)?'✓':'—'}</td><td>${goalText(l)}</td><td>${positiveInt(l.assists)}</td><td>${positiveInt(l.yellow)}</td><td>${positiveInt(l.red)}</td></tr>`}).join('')}</tbody></table></div>${!lines.length?'<p class="form-guide">Nessuna distinta presente per questa partita. Puoi aggiungerla con Modifica partita e distinta.</p>':''}`;
+    // Assist e marcatori sono quelli della nostra distinta, non del widget esterno.
+    // Anche le distinte escluse dalle statistiche stagionali mostrano gli eventi registrati.
+    const matchContributors = (kind) => lines.map(l=>{
+      const player=state.data.players.find(p=>p.id===l.playerId);
+      const count=kind==='assists'?positiveInt(l.assists):goalParts(l).scored;
+      return player&&count>0?{name:name(player),count}:null;
+    }).filter(Boolean);
+    const contributorsSection=(title,items,icon)=>`<section class="match-contributors-block"><h4>${icon} ${title}</h4>${items.length?`<div class="match-contributors-list">${items.map(x=>`<span class="match-contributor">${esc(x.name)} <strong>${x.count}</strong></span>`).join('')}</div>`:'<p class="match-contributors-empty">Nessun dato inserito nella distinta</p>'}</section>`;
+    const contributors=lines.length?`<div class="match-contributors">${contributorsSection('Marcatori',matchContributors('goals'),'⚽')}${contributorsSection('Assist',matchContributors('assists'),'🎯')}</div>`:'';
+    const body=`<div class="eyebrow">${localeDate(m.date)} · ${esc(m.competition||'Partita')}</div><h3 class="page-title" style="font-size:27px">${esc(f.home)} <span class="muted">vs</span> ${esc(f.away)} <span class="accent-green">${f.homeGoals} — ${f.awayGoals}</span></h3><p class="page-subtitle">${m.venue==='T'?'Trasferta':'Casa'} · ${resultLabel(matchResult(m))}</p>${positiveInt(m.ownGoalsFor)?`<p class="modal-explainer">⚽ Autogol a favore: <strong>${positiveInt(m.ownGoalsFor)}</strong> (non assegnati ai marcatori).</p>`:''}${m.notes?`<p class="modal-explainer">${esc(m.notes)}</p>`:''}${m.noStats?'<p class="notice">Questa distinta è archiviata ma NON contribuisce alle statistiche dei giocatori.</p>':''}${contributors}<hr class="soft-rule"><h3 class="panel-title">Distinta e statistiche</h3><div class="table-shell mt-20"><table class="data-table" style="min-width:560px"><thead><tr><th>Giocatore</th><th>Ruolo partita</th><th>Conv.</th><th>Pres.</th><th>Gol</th><th>Assist</th><th>Gialli</th><th>Rossi</th></tr></thead><tbody>${lines.map(l=>{const p=state.data.players.find(p=>p.id===l.playerId);return `<tr><td>${esc(p?name(p):'Giocatore non trovato')}</td><td>${matchKeeper(l,m.seasonId)?'🧤 Portiere':'Movimento'}</td><td>${one(l.called)?'✓':'—'}</td><td>${one(l.played)?'✓':'—'}</td><td>${goalText(l)}</td><td>${positiveInt(l.assists)}</td><td>${positiveInt(l.yellow)}</td><td>${positiveInt(l.red)}</td></tr>`}).join('')}</tbody></table></div>${!lines.length?'<p class="form-guide">Nessuna distinta presente per questa partita. Puoi aggiungerla con Modifica partita e distinta.</p>':''}`;
     modal(`Partita contro ${m.opponent}`,body,`<button class="btn btn-secondary" data-action="close-modal">Chiudi</button><button class="btn btn-primary only-editor" data-action="edit-match" data-id="${esc(m.id)}">Modifica partita e distinta</button>${canDeleteMatch()?`<button class="btn btn-danger" data-action="delete-match" data-id="${esc(m.id)}">✕ Elimina partita</button>`:''}`,true);
   }
   function deleteMatchConfirm(matchId) {
@@ -915,6 +926,7 @@
         const meta=await googleAPI('?fields=sheets(properties(sheetId,title))');
         state.sheetIds=Object.fromEntries((meta.sheets||[]).map(s=>[s.properties.title,s.properties.sheetId]));
         if(SHEETS.some(n=>state.sheetIds[n]===undefined))throw new Error('Database Google Sheets non inizializzato: mancano alcune schede.');
+        state.view='league';state.leagueTab='calendario';
         await refreshData();toast('Google connesso. La scrittura è consentita solo a chi ha permessi sul foglio.');
       } catch(error){state.token='';state.accountEmail='';toast(safeError(error),true);render();}
     }});

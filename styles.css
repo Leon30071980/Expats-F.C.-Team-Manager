@@ -354,3 +354,65 @@ button,input,select,textarea{font-family:inherit}
   .match-kpi-place-label span:first-child{font-size:12px}
   .match-kpi-place-count{font-size:18px}
 }
+
+
+/* v1.27 — mobile-first, senza cambiare gli iframe Tuttocampo */
+.match-contributors{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:18px 0 8px}
+.match-contributors-block{min-width:0;padding:14px;border:1px solid #2a4661;background:#15283e;border-radius:11px}
+.match-contributors-block h4{font-family:'Exo 2',sans-serif;font-size:16px;margin:0 0 11px;color:#e9f6ff}
+.match-contributors-list{display:flex;gap:8px;flex-wrap:wrap}
+.match-contributor{display:inline-flex;align-items:center;gap:8px;border-radius:8px;padding:7px 10px;background:#213d53;color:#e7f6ff;font-size:13px;font-weight:700}
+.match-contributor strong{font-size:13px;color:#f5d58f}
+.match-contributors-empty{margin:0;color:#a1b8d1;font-size:12px;line-height:1.55}
+@media(max-width:820px){
+  .shell,.main-column,.content{max-width:100%;min-width:0}
+  .nav{-webkit-overflow-scrolling:touch;scrollbar-width:thin;overscroll-behavior-x:contain}
+  .nav-item{min-height:44px;flex-shrink:0}
+  .topbar-actions{justify-content:space-between;gap:9px;flex-wrap:wrap}
+  .topbar select{flex:1;min-width:112px;max-width:215px}
+  .league-match-cards{grid-template-columns:minmax(0,1fr)}
+  .league-embedded-panel{min-width:0}
+  .league-embed-wrap{min-width:0;max-width:100%}
+  .league-embed{max-width:100%}
+  .table-shell{-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
+  .result-line{gap:12px;min-width:0}
+  .result-line>div:first-child{min-width:0}
+  .result-line .opponent{overflow-wrap:anywhere;line-height:1.4}
+  .results-head{flex-shrink:0}
+}
+@media(max-width:560px){
+  .content{padding:18px 12px}
+  .sidebar{padding:11px 12px 4px}
+  .nav{margin:0 -3px;padding-bottom:8px}
+  .nav-item{padding:11px 12px;font-size:12px}
+  .topbar{padding:11px 12px}
+  .topbar-actions{width:100%}
+  .topbar select{font-size:13px;min-width:116px;max-width:none}
+  .topbar #auth-btn{font-size:12px;white-space:nowrap}
+  .page-title{font-size:clamp(25px,7vw,32px);line-height:1.13}
+  .page-subtitle{font-size:13px;line-height:1.5}
+  .panel{padding:14px 12px}
+  .panel-heading{align-items:flex-start;gap:9px;flex-wrap:wrap}
+  .panel-heading .panel-title{font-size:17px}
+  .league-match-cards{gap:12px;margin-bottom:12px}
+  .league-match-cards .panel{padding:12px 8px}
+  .league-embed-wrap{margin-top:10px}
+  .league-embed-head{padding:9px;font-size:10px}
+  .league-embed-ultimapartita,.league-embed-prossimapartita{height:440px}
+  .league-tabs{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:7px}
+  .league-tabs button{font-size:12px;padding:11px 5px;white-space:normal;min-height:44px}
+  .modal-backdrop{padding:8px}
+  .modal{max-height:calc(100dvh - 16px);border-radius:12px}
+  .modal-header,.modal-body,.modal-footer{padding-left:12px;padding-right:12px}
+  .match-contributors{grid-template-columns:1fr;gap:9px}
+  .match-contributors-block{padding:12px}
+  .main-footer{gap:12px;flex-wrap:wrap;margin:0 12px;font-size:10px}
+  .results-head{gap:6px}
+  .result-line .score{font-size:19px}
+}
+@media(max-width:370px){
+  .topbar-actions{gap:5px}
+  .topbar #auth-btn{padding:8px 9px;font-size:11px}
+  .result-line{align-items:flex-start;flex-direction:column}
+  .results-head{align-self:flex-end}
+}
