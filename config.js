@@ -5,6 +5,6 @@ window.EXPATS_CONFIG = Object.freeze({
   teamName: 'Expats F.C.',
   spreadsheetId: '13VzgnDyhlp8fXr8za4UVACNymPoR9WqYG5GWx-fyKZQ', // ID del foglio Google (tra /d/ e /edit nell'URL)
   googleClientId: '512727650048-n2acft1ds13c3hf3hfj01tc673ibrjad.apps.googleusercontent.com', // ID client OAuth 2.0, tipo Applicazione web
-  publicMode: true
+  publicMode: true,
   athletesSpreadsheetId: '1bDmeSSwNQOy6cEqoxcBxUOU1dtOVsdamCITQrCqFTDo',
 });
