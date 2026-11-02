@@ -1,4 +1,4 @@
-/* EXPATS F.C. TEAM MANAGER — v1.25
+/* EXPATS F.C. TEAM MANAGER — v1.26
  * Frontend statico GitHub Pages + Google Sheets API (edit via OAuth) + GViz JSONP (pubblico).
  * Il controllo delle modifiche dipende dai permessi Google Drive sul foglio.
  */
@@ -6,7 +6,7 @@
   'use strict';
   const CFG = window.EXPATS_CONFIG;
   const SHEETS = ['Giocatori','Stagioni','Partite','Distinte','Pregresso','Tesseramenti','Ruoli','Stati','CampionatoClassifica','CampionatoPartite','CampionatoWidget'];
-  const VERSION='v1.25';
+  const VERSION='v1.26';
   const state = {
     data: structuredClone(window.EXPATS_DEMO),
     source: 'demo', view: 'dashboard', seasonId: '', rosterScope: 'season',
@@ -335,8 +335,39 @@
   const matchLine = m=>{const f=fixture(m);const clubName = team => isExpatsTeam(team) ? `<strong class="expats-team-in-match">${esc(team)}</strong>` : esc(team);return `<div class="result-line clickable" data-match="${esc(m.id)}"><div><div class="opponent">${clubName(f.home)} <span class="muted">vs</span> ${clubName(f.away)}</div><div class="meta">${localeDate(m.date)} · ${esc(m.venue==='T'?'Trasferta':'Casa')} · ${esc(m.competition||'Campionato')}${positiveInt(m.ownGoalsFor)?` · ${positiveInt(m.ownGoalsFor)} autogol a favore`:''}${m.noStats?' · Statistiche individuali escluse':''}</div></div><div class="results-head"><span class="chip ${matchResult(m)==='W'?'success':matchResult(m)==='D'?'warning':'danger'}">${resultLabel(matchResult(m))}</span><span class="score">${f.homeGoals} : ${f.awayGoals}</span>${canDeleteMatch()?`<button type="button" class="btn btn-danger btn-small match-delete-btn" data-action="delete-match" data-id="${esc(m.id)}" title="Elimina questa partita e la distinta" aria-label="Elimina partita contro ${esc(m.opponent)}">✕ Elimina</button>`:''}</div></div>`;};
   function renderMatches() {
     const s=activeSeason(), matches=seasonMatches(s.id),t=seasonTotals(s.id);
+    // La suddivisione Casa/Trasferta usa i risultati registrati nella stagione,
+    // senza incidere sui totali individuali o sul database.
+    const split={C:{matches:0,win:0,draw:0,loss:0},T:{matches:0,win:0,draw:0,loss:0}};
+    for(const m of matches){
+      const stats=split[m.venue==='T'?'T':'C'];
+      stats.matches++;
+      const result=matchResult(m);
+      if(result==='W')stats.win++;
+      else if(result==='D')stats.draw++;
+      else stats.loss++;
+    }
+    const cards=[
+      ['PARTITE',t.matches,'matches','accent-blue'],
+      ['VITTORIE',t.win,'win','accent-green'],
+      ['PAREGGI',t.draw,'draw','accent-yellow'],
+      ['SCONFITTE',t.loss,'loss','accent-red']
+    ];
+    const kpi=cards.map(([label,total,key,color])=>`<div class="stat-card match-kpi-card">
+      <div class="stat-card-label">${label}</div>
+      <div class="stat-value ${color}">${total}</div>
+      <div class="match-kpi-split">
+        <div class="match-kpi-place match-kpi-home" aria-label="${label.toLowerCase()} in casa: ${split.C[key]}">
+          <div class="match-kpi-place-label"><span aria-hidden="true">🏠</span><span>Casa</span></div>
+          <strong class="match-kpi-place-count">${split.C[key]}</strong>
+        </div>
+        <div class="match-kpi-place match-kpi-away" aria-label="${label.toLowerCase()} in trasferta: ${split.T[key]}">
+          <div class="match-kpi-place-label"><span aria-hidden="true">✈</span><span>Trasferta</span></div>
+          <strong class="match-kpi-place-count">${split.T[key]}</strong>
+        </div>
+      </div>
+    </div>`).join('');
     return intro('CALENDARIO E RISULTATI','Partite della stagione',`Risultati e distinte archiviate · ${s.name}`,`<button class="btn btn-secondary only-editor" data-action="import-results">⇧ Importa risultati CSV</button>${newMatchButton()}`)+banner()+
-      `<div class="stats-grid">${[['GIOCATE',t.matches,'🏟','Partite archiviate','accent-blue'],['VITTORIE',t.win,'🏆','Risultati vincenti','accent-green'],['PAREGGI',t.draw,'🤝','Partite in parità','accent-yellow'],['SCONFITTE',t.loss,'📉','Partite perse','accent-red']].map(([lab,val,icon,foot,color])=>`<div class="stat-card"><div class="stat-icon">${icon}</div><div class="stat-card-label">${lab}</div><div class="stat-value ${color}">${val}</div><div class="stat-foot">${foot}</div></div>`).join('')}</div>
+      `<div class="stats-grid match-kpi-grid">${kpi}</div>
       <div class="panel"><div class="panel-heading"><h2 class="panel-title">Elenco incontri</h2><span class="panel-caption">${matches.length} partite · ordine cronologico (dalla più vecchia)</span></div>${matches.length?matches.map(matchLine).join(''):empty('⚽','Non sono ancora state registrate partite','Le nuove partite incrementeranno automaticamente presenze, convocazioni e statistiche.')}</div>`;
   }
   function renderRankings() {

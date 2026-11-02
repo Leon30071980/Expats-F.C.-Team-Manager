@@ -328,3 +328,29 @@ button,input,select,textarea{font-family:inherit}
   color: #ffe3a9;
   font-weight: 900;
 }
+
+
+/* v1.26 — Proposta B: split Casa / Trasferta in Partite e risultati.
+   Etichette visibili ACCANTO alle icone, valori sotto. */
+.match-kpi-card {display:flex;flex-direction:column;align-items:center;gap:10px;min-height:196px;padding:20px 16px 16px;text-align:center}
+.match-kpi-card .stat-card-label{padding:0;margin:0;font-size:12px;letter-spacing:1px}
+.match-kpi-card .stat-value{font-size:38px;line-height:1.12;margin:0}
+.match-kpi-split{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;width:100%;margin-top:auto}
+.match-kpi-place{display:flex;flex-direction:column;gap:5px;align-items:center;justify-content:center;min-width:0;padding:9px 4px 10px;border-radius:9px;border:1px solid transparent}
+.match-kpi-home{background:#574520;border-color:#7e6330;color:#ffe2a8}
+.match-kpi-away{background:#253e5c;border-color:#355576;color:#d4eaff}
+.match-kpi-place-label{display:flex;align-items:center;justify-content:center;gap:5px;max-width:100%;white-space:nowrap;font-size:11px;font-weight:800;line-height:1.15}
+.match-kpi-place-label span:first-child{font-size:16px;line-height:1}
+.match-kpi-place-count{font-family:'Exo 2',sans-serif;font-size:21px;font-weight:900;font-variant-numeric:tabular-nums;line-height:1.1}
+@media(max-width:1100px){.match-kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:560px){
+  .match-kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+  .match-kpi-card{padding:13px 8px 11px;min-height:167px;gap:8px}
+  .match-kpi-card .stat-card-label{font-size:10px}
+  .match-kpi-card .stat-value{font-size:30px}
+  .match-kpi-split{gap:5px}
+  .match-kpi-place{padding:8px 2px}
+  .match-kpi-place-label{font-size:9px;gap:3px}
+  .match-kpi-place-label span:first-child{font-size:12px}
+  .match-kpi-place-count{font-size:18px}
+}
