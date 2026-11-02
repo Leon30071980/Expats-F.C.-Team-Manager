@@ -641,3 +641,118 @@ button,input,select,textarea{font-family:inherit}
 @media(max-width:760px){.formation-field-frame-v131{grid-template-columns:minmax(0,1fr);gap:11px}.formation-bench-inside{max-height:none}.formation-bench-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));max-height:none;overflow:visible}.formation-call-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:540px){.formation-call-panel{padding:12px}.formation-call-heading{align-items:flex-start;gap:8px}.formation-call-heading h2{font-size:20px}.formation-call-heading p{font-size:12px}.formation-call-total{min-width:60px;padding:9px}.formation-call-total strong{font-size:24px}.formation-call-grid{grid-template-columns:1fr;max-height:56vh}.formation-call-footer{align-items:stretch}.formation-call-footer button{width:100%}.formation-field-frame-v131{padding:6px}.formation-field-frame-v131 .formation-pitch{height:570px}.formation-position-v131{width:98px;min-height:81px;padding:4px 3px}.formation-position-v131 .formation-selected-name{font-size:9px;max-width:91px}.formation-position-v131 .formation-position-label{font-size:8px}.formation-bench-list{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:365px){.formation-field-frame-v131 .formation-pitch{height:530px}.formation-position-v131{width:84px;min-height:77px}.formation-position-v131 .formation-selected-name{font-size:8px;max-width:80px}.formation-bench-list{grid-template-columns:1fr}}
+
+
+/* v1.32 — campo realistico, orientato nel senso della lunghezza.
+   Rapporti da campo da calcio: larghezza 68 / lunghezza 105.
+   Non cambia coordinate tattiche, convocati o comportamento della panchina. */
+.formation-field-frame-v131 {
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: minmax(0, 470px) minmax(0, 188px);
+  justify-content: center;
+  align-items: start;
+  gap: 18px;
+  width: min(100%, 724px);
+  max-width: 724px;
+  margin-inline: auto;
+  padding: 14px;
+}
+.formation-field-frame-v131 .formation-pitch {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 470px;
+  height: auto;
+  aspect-ratio: 68 / 105;
+  margin: 0 auto;
+  flex: none;
+}
+.formation-field-frame-v131 .formation-position-v131 {
+  box-sizing: border-box;
+  width: clamp(68px, 24%, 112px);
+  min-height: 76px;
+  padding: 5px 4px;
+  gap: 2px;
+}
+.formation-field-frame-v131 .formation-position-v131 .formation-selected-name {
+  max-width: 100%;
+  font-size: 10px;
+  line-height: 1.2;
+}
+.formation-field-frame-v131 .formation-position-v131 .formation-position-label {
+  font-size: 9px;
+}
+.formation-field-frame-v131 .formation-player-shirt {height: 38px}
+.formation-field-frame-v131 .formation-player-shirt .shirt-wrap {width: 44px; height: 38px}
+.formation-field-frame-v131 .formation-bench-inside {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-height: none;
+  height: auto;
+  aspect-ratio: auto;
+  align-self: stretch;
+  overflow: hidden;
+}
+.formation-field-frame-v131 .formation-bench-list {
+  overflow-x: hidden;
+  overflow-y: auto;
+  max-height: 100%;
+}
+/* Senza alterare la proporzione del campo, la panchina va sotto
+   quando non c'è abbastanza larghezza per ospitarla a destra. */
+@media(max-width: 940px) {
+  .formation-field-frame-v131 {
+    grid-template-columns: minmax(0, 1fr);
+    width: min(100%, 512px);
+    padding: 10px;
+  }
+  .formation-field-frame-v131 .formation-pitch {
+    max-width: 470px;
+    justify-self: center;
+  }
+  .formation-field-frame-v131 .formation-bench-inside {
+    align-self: auto;
+    overflow: visible;
+  }
+  .formation-field-frame-v131 .formation-bench-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow: visible;
+    max-height: none;
+  }
+}
+@media(max-width: 540px) {
+  .formation-field-frame-v131 {padding: 6px; gap: 10px}
+  .formation-field-frame-v131 .formation-pitch {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 68 / 105;
+  }
+  .formation-field-frame-v131 .formation-position-v131 {
+    width: clamp(64px, 23%, 94px);
+    min-height: 67px;
+    padding: 3px 2px;
+    gap: 1px;
+  }
+  .formation-field-frame-v131 .formation-position-v131 .formation-selected-name {
+    font-size: 9px;
+  }
+  .formation-field-frame-v131 .formation-position-v131 .formation-position-label {
+    font-size: 8px;
+    white-space: normal;
+  }
+  .formation-field-frame-v131 .formation-player-shirt {height: 30px}
+  .formation-field-frame-v131 .formation-player-shirt .shirt-wrap {width: 35px; height: 30px}
+  .formation-field-frame-v131 .formation-player-shirt .shirt-number {font-size: 11px}
+}
+@media(max-width: 370px) {
+  .formation-field-frame-v131 .formation-position-v131 {
+    width: clamp(61px, 23%, 76px);
+    min-height: 63px;
+  }
+  .formation-field-frame-v131 .formation-position-v131 .formation-selected-name {font-size: 8px}
+  .formation-field-frame-v131 .formation-player-shirt {height: 27px}
+  .formation-field-frame-v131 .formation-player-shirt .shirt-wrap {height: 27px; width: 32px}
+  .formation-field-frame-v131 .formation-bench-list {grid-template-columns: 1fr}
+}

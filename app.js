@@ -1,4 +1,4 @@
-/* EXPATS F.C. TEAM MANAGER — v1.31
+/* EXPATS F.C. TEAM MANAGER — v1.32
  * Frontend statico GitHub Pages + Google Sheets API (edit via OAuth) + GViz JSONP (pubblico).
  * Il controllo delle modifiche dipende dai permessi Google Drive sul foglio.
  */
@@ -6,7 +6,7 @@
   'use strict';
   const CFG = window.EXPATS_CONFIG;
   const SHEETS = ['Giocatori','Stagioni','Partite','Distinte','Pregresso','Tesseramenti','Ruoli','Stati','CampionatoClassifica','CampionatoPartite','CampionatoWidget','Formazioni','FormazioniPartite','EventiGol'];
-  const VERSION='v1.31';
+  const VERSION='v1.32';
   const state = {
     data: structuredClone(window.EXPATS_DEMO),
     source: 'demo', view: 'league', seasonId: '', rosterScope: 'season',
@@ -1099,7 +1099,7 @@
     };
     const rows=[labels,...playerRows().map((p,i)=>[i+1,...fields.map(k=>k==='seasons'?seasonsPlayed(p.id):k==='role'?rolesText(p.role):k==='goals'?rosterGoalText(p):p[k])])];
     const csv='\ufeff'+rows.map(row=>row.map(escapeCSV).join(';')).join('\r\n');
-    const blob=new Blob([csv],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=el('a',{href:url,download:`expats-fc-${state.seasonId}-v1.31.csv`});
+    const blob=new Blob([csv],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=el('a',{href:url,download:`expats-fc-${state.seasonId}-v1.32.csv`});
     document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),2000);toast('Classifica esportata in CSV.');
   }
   // --- Google Drive: lettura pubblica via Google Visualization JSONP ---
