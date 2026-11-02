@@ -1,17 +1,17 @@
-/* EXPATS F.C. TEAM MANAGER — v1.28
+/* EXPATS F.C. TEAM MANAGER — v1.29
  * Frontend statico GitHub Pages + Google Sheets API (edit via OAuth) + GViz JSONP (pubblico).
  * Il controllo delle modifiche dipende dai permessi Google Drive sul foglio.
  */
 (() => {
   'use strict';
   const CFG = window.EXPATS_CONFIG;
-  const SHEETS = ['Giocatori','Stagioni','Partite','Distinte','Pregresso','Tesseramenti','Ruoli','Stati','CampionatoClassifica','CampionatoPartite','CampionatoWidget','Formazioni'];
-  const VERSION='v1.28';
+  const SHEETS = ['Giocatori','Stagioni','Partite','Distinte','Pregresso','Tesseramenti','Ruoli','Stati','CampionatoClassifica','CampionatoPartite','CampionatoWidget','Formazioni','FormazioniPartite'];
+  const VERSION='v1.29';
   const state = {
     data: structuredClone(window.EXPATS_DEMO),
     source: 'demo', view: 'league', seasonId: '', rosterScope: 'season',
     sort: {key:'number',dir:1}, search:'', filter:'TUTTI', leagueTab:'calendario',
-    token: '', accountEmail:'', sheetIds: {}, schemaReady:false, busy: false, inlineSaving:false, lastError: '', formationDraft:null
+    token: '', accountEmail:'', sheetIds: {}, schemaReady:false, busy: false, inlineSaving:false, lastError: '', formationDraft:null, formationMatchId:''
   };
   const $ = (sel, root=document) => root.querySelector(sel);
   const el = (name, attrs={}) => Object.assign(document.createElement(name), attrs);
@@ -282,7 +282,7 @@
   function intro(kicker,title,desc,actions='') {
     // Selettore ben visibile in ogni pagina; la barra superiore rimane dedicata al login.
     const seasonChoice=`<label class="page-season" for="season-select"><span class="page-season-label">◷ STAGIONE</span><select id="season-select" aria-label="Seleziona la stagione visualizzata">${state.data.seasons.map(s=>`<option value="${esc(s.id)}" ${s.id===state.seasonId?'selected':''}>${esc(s.name)}</option>`).join('')}</select></label>`;
-    return `<div class="page-intro"><div class="page-intro-copy"><div class="eyebrow">${esc(kicker)}</div><h1 class="page-title">${esc(title)}</h1><p class="page-subtitle">${esc(desc)}</p></div><div class="intro-tools">${seasonChoice}${actions?`<div class="intro-buttons">${actions}</div>`:''}</div></div>`;
+    return `<div class="page-intro"><div class="page-intro-copy"><div class="eyebrow">${esc(kicker)}</div><h1 class="page-title">${esc(title)}</h1><p class="page-subtitle">${esc(desc)}</p></div><div class="intro-season-center">${seasonChoice}</div><div class="intro-tools">${actions?`<div class="intro-buttons">${actions}</div>`:''}</div></div>`;
   }
   const newMatchButton = () => `<button class="btn btn-primary only-editor" data-action="new-match">＋ Registra partita</button>`;
   const empty = (emoji,msg,sub='') => `<div class="empty-state"><div class="empty-emoji">${emoji}</div><strong>${esc(msg)}</strong>${sub?`<p>${esc(sub)}</p>`:''}</div>`;
@@ -330,14 +330,14 @@
       const visual=k==='goals'?p.goalsFor:positiveInt(p[k]);
       return `<td class="metric-cell metric-${k} ${hasConceded?'keeper-goals':''}" title="${hasConceded?'Gol fatti / gol subiti':'Statistica stagionale'}"><div class="metric-value">${esc(value)}</div>${hasConceded?'':`<div class="metric-track"><span style="width:${Math.min(100,Math.round(100*visual/maximum[k]))}%"></span></div>`}</td>`;
     };
-    return rows.map((p,i)=>`<tr class="clickable" data-player="${esc(p.id)}" title="Dettaglio ${esc(name(p))}"><td class="row-index">${i+1}</td><td class="col-shirt">${playerJerseys(p,false,state.seasonId)}</td><td class="col-name">${esc(p.firstName)}</td><td class="col-name">${esc(p.lastName)}</td><td class="inline-cell role-cell">${roleCell(p.role,p.id)}</td><td class="inline-cell">${editor()?dropdown('status',p.status,p.id):statusBadge(p.status)}</td>${isAfterFirstSeason(state.seasonId)?`<td class="num season-num">${seasonsPlayed(p.id)}</td>`:''}${keys.map(k=>metric(p,k)).join('')}</tr>`).join('');
+    return rows.map((p,i)=>`<tr class="clickable" data-player="${esc(p.id)}" title="Dettaglio ${esc(name(p))}"><td class="row-index">${i+1}</td><td class="col-shirt">${playerJerseys(p,false,state.seasonId)}</td><td class="col-name">${esc(p.firstName)}</td><td class="col-name">${esc(p.lastName)}</td><td class="inline-cell role-cell">${roleCell(p.role,p.id)}</td><td class="inline-cell status-cell">${editor()?dropdown('status',p.status,p.id):statusBadge(p.status)}</td>${isAfterFirstSeason(state.seasonId)?`<td class="num season-num">${seasonsPlayed(p.id)}</td>`:''}${keys.map(k=>metric(p,k)).join('')}</tr>`).join('');
   }
   function renderPlayers() {
     return intro('ROSA UFFICIALE','I nostri giocatori','Maglia, ruoli multipli e stato indipendenti per stagione, modificabili dalla rosa e dalla scheda giocatore.',`<button class="btn btn-secondary" data-action="export">↓ Esporta CSV</button><button class="btn btn-primary only-editor" data-action="new-player">＋ Nuovo giocatore</button>`)+banner()+
       `<div class="toolbar"><button class="btn btn-secondary only-editor" data-action="manage-roles">🎨 Ruoli e colori</button><button class="btn btn-secondary only-editor" data-action="manage-states">🎨 Stati e colori</button><select id="roster-scope" class="filter-select" aria-label="Rosa della stagione"><option value="season" ${state.rosterScope==='season'?'selected':''}>Rosa stagione</option><option value="all" ${state.rosterScope==='all'?'selected':''}>Tutti i giocatori</option></select><input id="player-search" class="search" type="search" placeholder="Cerca per nome, maglia o ruolo..." value="${esc(state.search)}" aria-label="Cerca giocatore"><select id="status-filter" class="filter-select" aria-label="Filtra per stato"><option value="TUTTI" ${state.filter==='TUTTI'?'selected':''}>Tutti gli stati</option>${availableStates().map(item=>{const x=item.id;return `<option value="${x}" ${state.filter===x?'selected':''}>${statusText(x)}</option>`}).join('')}</select></div>
-      <div class="table-shell"><table class="data-table roster-table"><thead><tr><th class="col-count" title="Numerazione progressiva delle righe visualizzate">N°</th><th class="sortable" data-sort="number" title="Numero di maglia">Maglia${state.sort.key==='number'?(state.sort.dir===1?' ↑':' ↓'):''}</th>${[['firstName','Nome'],['lastName','Cognome'],['role','Ruolo'],['status','Stato'],...(isAfterFirstSeason(state.seasonId)?[['seasons','Stagioni']]:[]),['called','Conv.'],['played','Pres.'],['goals','Gol'],['assists','Assist'],['yellow','Gialli'],['red','Rossi']].map(([k,label])=>`<th class="sortable" data-sort="${k}">${label}${state.sort.key===k?(state.sort.dir===1?' ↑':' ↓'):''}</th>`).join('')}</tr></thead><tbody id="players-tbody">${playersTable()}</tbody></table></div><p class="notice">N° = posizione progressiva nella tabella · Maglia = numero scelto dal giocatore; con ruoli misti due maglie (azzurra e arancione), ciascuna con numero stagionale indipendente. Le barre confrontano i valori della stessa colonna nella rosa visualizzata. I gol subiti sono negativi e senza barra; per i giocatori con ruoli da portiere e movimento sono sempre visibili due valori (es. 0 / −3), anche se i gol fatti sono zero. Clicca sulla matita accanto ai badge Ruolo o sul menu Stato per modificarli solo nella stagione scelta. Le maglie doppie (azzurra/arancione) si attivano per i ruoli misti anche se il catalogo contiene tipi statistici personalizzati. La colonna Ruolo si allarga per mostrare tutti i badge su un’unica riga. Per cambiare maglia, apri Modifica giocatore. Apri la scheda di un giocatore per rimuoverlo dalla rosa della stagione senza cancellarne lo storico. La colonna Stagioni appare dalla seconda stagione e conta solo quelle fino alla stagione scelta.</p>`;
+      <div class="table-shell"><table class="data-table roster-table"><thead><tr><th class="col-count" title="Numerazione progressiva delle righe visualizzate">N°</th><th class="sortable" data-sort="number" title="Numero di maglia">Maglia${state.sort.key==='number'?(state.sort.dir===1?' ↑':' ↓'):''}</th>${[['firstName','Nome'],['lastName','Cognome'],['role','Ruolo'],['status','Stato'],...(isAfterFirstSeason(state.seasonId)?[['seasons','Stagioni']]:[]),['called','Conv.'],['played','Pres.'],['goals','Gol'],['assists','Assist'],['yellow','Gialli'],['red','Rossi']].map(([k,label])=>`<th class="sortable" data-sort="${k}">${label}${state.sort.key===k?(state.sort.dir===1?' ↑':' ↓'):''}</th>`).join('')}</tr></thead><tbody id="players-tbody">${playersTable()}</tbody></table></div><p class="notice">N° = posizione progressiva nella tabella · Maglia = numero scelto dal giocatore; con ruoli misti due maglie (azzurra e arancione), ciascuna con numero stagionale indipendente. Le barre confrontano i valori della stessa colonna nella rosa visualizzata. I gol subiti sono negativi e senza barra; per i giocatori con ruoli da portiere e movimento sono sempre visibili due valori (es. 0 / −3), anche se i gol fatti sono zero. Clicca sulla matita accanto ai badge Ruolo o sul menu Stato per modificarli solo nella stagione scelta. Le maglie doppie (azzurra/arancione) si attivano per i ruoli misti anche se il catalogo contiene tipi statistici personalizzati. La colonna Ruolo dispone i badge in verticale per mantenere compatta la tabella. Per cambiare maglia, apri Modifica giocatore. Apri la scheda di un giocatore per rimuoverlo dalla rosa della stagione senza cancellarne lo storico. La colonna Stagioni appare dalla seconda stagione e conta solo quelle fino alla stagione scelta.</p>`;
   }
-  const matchLine = m=>{const f=fixture(m);const clubName = team => isExpatsTeam(team) ? `<strong class="expats-team-in-match">${esc(team)}</strong>` : esc(team);return `<div class="result-line clickable" data-match="${esc(m.id)}"><div><div class="opponent">${clubName(f.home)} <span class="muted">vs</span> ${clubName(f.away)}</div><div class="meta">${localeDate(m.date)} · ${esc(m.venue==='T'?'Trasferta':'Casa')} · ${esc(m.competition||'Campionato')}${positiveInt(m.ownGoalsFor)?` · ${positiveInt(m.ownGoalsFor)} autogol a favore`:''}${m.noStats?' · Statistiche individuali escluse':''}</div></div><div class="results-head"><span class="chip ${matchResult(m)==='W'?'success':matchResult(m)==='D'?'warning':'danger'}">${resultLabel(matchResult(m))}</span><span class="score">${f.homeGoals} : ${f.awayGoals}</span>${canDeleteMatch()?`<button type="button" class="btn btn-danger btn-small match-delete-btn" data-action="delete-match" data-id="${esc(m.id)}" title="Elimina questa partita e la distinta" aria-label="Elimina partita contro ${esc(m.opponent)}">✕ Elimina</button>`:''}</div></div>`;};
+  const matchLine = m=>{const f=fixture(m);const clubName = team => isExpatsTeam(team) ? `<strong class="expats-team-in-match">${esc(team)}</strong>` : esc(team);const rows=state.data.lineups.filter(l=>l.matchId===m.id);const contributors=(kind)=>rows.map(l=>{const player=state.data.players.find(p=>p.id===l.playerId);const n=kind==='goals'?goalParts(l).scored:positiveInt(l.assists);return player&&n>0?`${esc(name(player))}${n>1?' ('+n+')':''}`:null;}).filter(Boolean);const goals=contributors('goals'),assists=contributors('assists');const detail=goals.length||assists.length?`<div class="match-inline-contributors">${goals.length?`<span><b>⚽ Gol:</b> ${goals.join(', ')}</span>`:''}${assists.length?`<span><b>🎯 Assist:</b> ${assists.join(', ')}</span>`:''}</div>`:'';return `<div class="result-line clickable" data-match="${esc(m.id)}"><div><div class="opponent">${clubName(f.home)} <span class="muted">vs</span> ${clubName(f.away)}</div><div class="meta">${localeDate(m.date)} · ${esc(m.venue==='T'?'Trasferta':'Casa')} · ${esc(m.competition||'Campionato')}${positiveInt(m.ownGoalsFor)?` · ${positiveInt(m.ownGoalsFor)} autogol a favore`:''}${m.noStats?' · Statistiche individuali escluse':''}</div>${detail}</div><div class="results-head"><span class="chip ${matchResult(m)==='W'?'success':matchResult(m)==='D'?'warning':'danger'}">${resultLabel(matchResult(m))}</span><span class="score">${f.homeGoals} : ${f.awayGoals}</span>${canDeleteMatch()?`<button type="button" class="btn btn-danger btn-small match-delete-btn" data-action="delete-match" data-id="${esc(m.id)}" title="Elimina questa partita e la distinta" aria-label="Elimina partita contro ${esc(m.opponent)}">✕ Elimina</button>`:''}</div></div>`;};
   function renderMatches() {
     const s=activeSeason(), matches=seasonMatches(s.id),t=seasonTotals(s.id);
     // La suddivisione Casa/Trasferta usa i risultati registrati nella stagione,
@@ -585,88 +585,117 @@
     const a=el('a',{href:url,download:`expats-fc-campionato-${kind}-modello.csv`});document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),2000);
   }
 
-  // Formazione 7 contro 7: una formazione salvata per ciascuna stagione.
-  // I moduli sono due: 2-3-1 e 3-2-1, più il portiere obbligatorio.
+  // Formazione: titolari (7) + panchina (5), base stagionale o associata ad una partita.
+  const BENCH_SLOTS=['B1','B2','B3','B4','B5'];
   const FORMATION_MODULES={
     '2-3-1':[
-      ['A1','Attaccante',50,13],
-      ['M1','Centrocampista sx',18,42],['M2','Centrocampista centro',50,42],['M3','Centrocampista dx',82,42],
-      ['D1','Difensore sx',32,69],['D2','Difensore dx',68,69],
-      ['GK','Portiere',50,91]
-    ],
+      ['A1','Punta',50,13],['M1','Ala sx',18,42],['M2','Centrocampista',50,42],['M3','Ala dx',82,42],
+      ['D1','Difensore sx',32,69],['D2','Difensore dx',68,69],['GK','Portiere',50,91]],
     '3-2-1':[
-      ['A1','Attaccante',50,13],
-      ['M1','Centrocampista sx',32,42],['M2','Centrocampista dx',68,42],
-      ['D1','Difensore sx',18,69],['D2','Difensore centro',50,69],['D3','Difensore dx',82,69],
-      ['GK','Portiere',50,91]
-    ]
+      ['A1','Punta',50,13],['M1','Ala sx',32,42],['M2','Ala dx',68,42],
+      ['D1','Difensore sx',18,69],['D2','Difensore centrale',50,69],['D3','Difensore dx',82,69],['GK','Portiere',50,91]]
   };
   const savedFormation=sid=>(state.data.formations||[]).find(f=>f.seasonId===sid);
+  const savedMatchFormation=id=>(state.data.matchFormations||[]).find(f=>f.matchId===id);
+  const formationChoice=()=>state.formationMatchId? savedMatchFormation(state.formationMatchId):savedFormation(state.seasonId);
+  const eligibleForSlot=(player,slot)=>{
+    const raw=rolesText(player.role).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+    const keeper=rolesOf(player.role).some(x=>/portier/i.test(x))||isKeeper(player);
+    if(slot==='GK')return keeper;
+    if(/^D/.test(slot))return /difensor|terzin|centrale|libero|mediano/.test(raw);
+    if(/^M/.test(slot))return /centrocamp|ala|esterno|mediano|trequart|laterale|jolly/.test(raw);
+    if(/^A/.test(slot))return /punt|attacc|trequart|ala|jolly/.test(raw);
+    return true;
+  };
   function ensureFormationDraft(){
-    if(state.formationDraft?.seasonId===state.seasonId)return state.formationDraft;
-    const saved=savedFormation(state.seasonId);
-    const module=FORMATION_MODULES[saved?.module]?saved.module:'2-3-1';
+    const key=state.formationMatchId || '_stagione';
+    if(state.formationDraft?.seasonId===state.seasonId&&state.formationDraft.key===key)return state.formationDraft;
+    const saved=formationChoice(),module=FORMATION_MODULES[saved?.module]?saved.module:'2-3-1';
+    const positions=new Set([...FORMATION_MODULES[module].map(p=>p[0]),...BENCH_SLOTS]);
     const allowed=new Set(playersInSeason(state.seasonId).map(p=>p.id));
-    const slots={};const occupied=new Set();
+    const slots={},occupied=new Set();
     for(const [position,playerId] of Object.entries(saved?.slots||{})){
-      if(allowed.has(playerId) && !occupied.has(playerId)){slots[position]=playerId;occupied.add(playerId);}
+      if(positions.has(position)&&allowed.has(playerId)&&!occupied.has(playerId)){slots[position]=playerId;occupied.add(playerId);}
     }
-    state.formationDraft={seasonId:state.seasonId,module,slots,dirty:false};
+    state.formationDraft={seasonId:state.seasonId,key,module,slots,dirty:false};
     return state.formationDraft;
+  }
+  function formationSelect(roster,slot,label,selected){
+    const chosen=roster.find(p=>p.id===selected);
+    const eligible=roster.filter(p=>eligibleForSlot(p,slot)),other=roster.filter(p=>!eligibleForSlot(p,slot));
+    const option=p=>`<option value="${esc(p.id)}" ${selected===p.id?'selected':''}>${esc(slot==='GK'?keeperKitNumber(p):p.number)} · ${esc(name(p))}${isUnavailable(p)?' · Indisponibile':''}</option>`;
+    const choices=slot.startsWith('B')?roster.map(option).join(''):
+      `<optgroup label="Consigliati per il ruolo">${eligible.map(option).join('')}</optgroup>${other.length?`<optgroup label="Altri giocatori (eccezione)">${other.map(option).join('')}</optgroup>`:''}`;
+    return `<select id="formation-${slot}" class="formation-player-select" data-formation-slot="${slot}" aria-label="${esc(label)}"><option value="">Seleziona…</option>${choices}</select>`;
   }
   function renderFormation(){
     if(!canManageFormation())return intro('ACCESSO RISERVATO','Formazione','Accedi con il tuo account amministratore.');
-    const draft=ensureFormationDraft(), positions=FORMATION_MODULES[draft.module];
-    const roster=playersInSeason(state.seasonId).sort((x,y)=>num(x.number)-num(y.number)||name(x).localeCompare(name(y),'it'));
+    const draft=ensureFormationDraft(),positions=FORMATION_MODULES[draft.module];
+    const roster=playersInSeason(state.seasonId).sort((a,b)=>num(a.number)-num(b.number)||name(a).localeCompare(name(b),'it'));
     const selectors=positions.map(([slot,role,x,y])=>{
-      const selected=draft.slots[slot]||'';
-      const player=roster.find(p=>p.id===selected);
-      const number=player?(slot==='GK'?keeperKitNumber(player):player.number):'–';
+      const selected=draft.slots[slot]||'',p=roster.find(p=>p.id===selected);
+      const number=p?(slot==='GK'?keeperKitNumber(p):p.number):'–';
       return `<div class="formation-position" style="--x:${x}%;--y:${y}%" data-position="${slot}">
         <div class="formation-player-shirt">${jersey(number,false,slot==='GK')}</div>
-        <span class="formation-selected-name">${player?esc(name(player)):'Da assegnare'}</span>
+        <span class="formation-selected-name">${p?esc(name(p)):'Da assegnare'}</span>
         <label class="formation-position-label" for="formation-${slot}">${esc(role)}</label>
-        <select id="formation-${slot}" class="formation-player-select" data-formation-slot="${slot}" aria-label="Giocatore in posizione ${esc(role)}"><option value="">Seleziona…</option>${roster.map(p=>`<option value="${esc(p.id)}" ${selected===p.id?'selected':''}>${esc(p.number)} · ${esc(name(p))}${isUnavailable(p)?' · Indisponibile':''}</option>`).join('')}</select>
-      </div>`;
+        ${formationSelect(roster,slot,'Giocatore in posizione '+role,selected)}</div>`;
     }).join('');
-    const chosen=Object.values(draft.slots).filter(Boolean).length;
-    const status=chosen===7?'7 giocatori schierati':`${chosen} di 7 giocatori schierati`;
-    const saved=savedFormation(state.seasonId);
+    const chosen=positions.filter(p=>draft.slots[p[0]]).length;
+    const reserves=BENCH_SLOTS.map((slot,i)=>{
+      const selected=draft.slots[slot]||'',p=roster.find(x=>x.id===selected);
+      return `<div class="formation-bench-slot"><div class="bench-shirt">${jersey(p?(isKeeper(p)?keeperKitNumber(p):p.number):'–',false,!!p&&isKeeper(p))}</div><label for="formation-${slot}">Riserva ${i+1}</label><div class="bench-player-name">${p?esc(name(p)):'—'}</div>${formationSelect(roster,slot,'Riserva '+(i+1),selected)}</div>`;
+    }).join('');
+    const matches=seasonMatches(state.seasonId);
+    const current=state.formationMatchId;
+    const matchOptions=matches.map(m=>`<option value="${esc(m.id)}" ${current===m.id?'selected':''}>${esc(localeDate(m.date))} · ${m.venue==='T'?'@ ':'vs '}${esc(m.opponent)}</option>`).join('');
+    const selectedMatch=matches.find(m=>m.id===current),saved=formationChoice();
     return intro('AREA TECNICA · SOLO AMMINISTRATORE','Formazione',`Calcio a 7 · ${activeSeason().name}`)+banner()+
-      `<section class="formation-toolbar panel"><div class="formation-controls"><label for="formation-module">Modulo tattico</label><select id="formation-module" class="form-control" aria-label="Seleziona modulo tattico"><option value="2-3-1" ${draft.module==='2-3-1'?'selected':''}>2-3-1</option><option value="3-2-1" ${draft.module==='3-2-1'?'selected':''}>3-2-1</option></select></div><div class="formation-meta"><span class="chip neutral" id="formation-count">${status}</span><span class="formation-save-status" id="formation-save-status">${draft.dirty?'Modifiche non salvate':saved?`Ultimo salvataggio: ${esc(saved.updatedAt||'registrato')}`:'Nessuna formazione salvata'}</span></div><button class="btn btn-primary" data-action="save-formation" id="save-formation-btn" ${chosen===7?'':'disabled'}>Salva formazione</button></section>
-      <div class="formation-layout"><div class="formation-field-frame"><div class="formation-pitch" role="group" aria-label="Campo di calcio a 7 con posizioni selezionabili"><div class="pitch-midline"></div><div class="pitch-midcircle"></div><div class="pitch-box pitch-box-top"></div><div class="pitch-box pitch-box-bottom"></div><div class="pitch-smallbox pitch-smallbox-top"></div><div class="pitch-smallbox pitch-smallbox-bottom"></div><div class="pitch-goal pitch-goal-top"></div><div class="pitch-goal pitch-goal-bottom"></div>${selectors}</div></div>
-      <aside class="formation-aside panel"><h2 class="panel-title">La tua formazione</h2><p class="page-subtitle">Assegna i sette giocatori dai menu sul campo. Le maglie e i numeri dipendono dalla stagione selezionata.</p><div class="formation-summary">${positions.map(([slot,role])=>{const p=roster.find(x=>x.id===draft.slots[slot]);return `<div class="formation-summary-row"><span>${esc(role)}</span><strong>${p?esc(name(p)):'—'}</strong></div>`}).join('')}</div><p class="form-guide">I giocatori indisponibili possono essere selezionati per preparare una formazione futura. Lo stesso giocatore non può occupare due posizioni. Le modifiche vengono salvate su Google Sheets soltanto premendo «Salva formazione».</p><button class="btn btn-secondary" data-action="reset-formation" type="button">Ripristina formazione salvata</button></aside></div>`;
+      `<section class="formation-toolbar panel"><div class="formation-controls"><label for="formation-module">Modulo</label><select id="formation-module" class="form-control"><option value="2-3-1" ${draft.module==='2-3-1'?'selected':''}>2-3-1</option><option value="3-2-1" ${draft.module==='3-2-1'?'selected':''}>3-2-1</option></select></div><div class="formation-controls formation-match-picker"><label for="formation-match">Associa alla partita</label><select id="formation-match" class="form-control"><option value="" ${!current?'selected':''}>Formazione base della stagione</option>${matchOptions}</select></div><div class="formation-meta"><span class="chip neutral">${chosen}/7 titolari · ${BENCH_SLOTS.filter(k=>draft.slots[k]).length}/5 riserve</span><span class="formation-save-status">${draft.dirty?'Modifiche non salvate':saved?`Salvata: ${esc(saved.updatedAt||'—')}`:'Da salvare'}</span></div><button class="btn btn-primary" data-action="save-formation" id="save-formation-btn" ${chosen===7?'':'disabled'}>Salva ${current?'formazione partita':'formazione stagionale'}</button></section>
+      ${selectedMatch?`<p class="formation-linked-match">Formazione abbinata a <strong>${esc(fixture(selectedMatch).home)} vs ${esc(fixture(selectedMatch).away)}</strong> · ${localeDate(selectedMatch.date)}</p>`:''}
+      <div class="formation-layout"><div class="formation-field-frame"><div class="formation-pitch" role="group" aria-label="Campo calcio a 7"><div class="pitch-midline"></div><div class="pitch-midcircle"></div><div class="pitch-box pitch-box-top"></div><div class="pitch-box pitch-box-bottom"></div><div class="pitch-smallbox pitch-smallbox-top"></div><div class="pitch-smallbox pitch-smallbox-bottom"></div><div class="pitch-goal pitch-goal-top"></div><div class="pitch-goal pitch-goal-bottom"></div>${selectors}</div></div>
+      <aside class="formation-aside panel"><h2 class="panel-title">Schieramento</h2><div class="formation-summary">${positions.map(([slot,role])=>{const p=roster.find(x=>x.id===draft.slots[slot]);return `<div class="formation-summary-row"><span>${esc(role)}</span><strong>${p?esc(name(p)):'—'}</strong></div>`}).join('')}</div><p class="form-guide">Giocatori suggeriti in base al ruolo stagionale; puoi comunque scegliere altri calciatori per esigenze tattiche. Non si può usare lo stesso giocatore in due slot.</p><button class="btn btn-secondary" data-action="reset-formation" type="button">Ripristina formazione salvata</button></aside></div>
+      <section class="panel formation-bench-panel"><div class="panel-heading"><h2 class="panel-title">🪑 Panchina · 5 riserve</h2><span class="panel-caption">Le riserve sono indipendenti dai sette titolari</span></div><div class="formation-bench-grid">${reserves}</div></section>`;
   }
   function changeFormationModule(module){
     const draft=ensureFormationDraft();if(!FORMATION_MODULES[module]||draft.module===module)return;
-    const positions=new Set(FORMATION_MODULES[module].map(x=>x[0]));
+    const positions=new Set([...FORMATION_MODULES[module].map(x=>x[0]),...BENCH_SLOTS]);
     draft.slots=Object.fromEntries(Object.entries(draft.slots).filter(([slot])=>positions.has(slot)));
     draft.module=module;draft.dirty=true;render();
   }
   function changeFormationPlayer(slot,playerId){
     const draft=ensureFormationDraft();
-    if(!FORMATION_MODULES[draft.module].some(row=>row[0]===slot))return;
-    if(playerId&&!playersInSeason(state.seasonId).some(p=>p.id===playerId)){toast('Giocatore non presente nella rosa della stagione.',true);render();return;}
+    if(![...FORMATION_MODULES[draft.module].map(r=>r[0]),...BENCH_SLOTS].includes(slot))return;
+    if(playerId&&!playersInSeason(state.seasonId).some(p=>p.id===playerId)){toast('Giocatore fuori rosa.',true);render();return;}
     if(playerId&&Object.entries(draft.slots).some(([s,id])=>s!==slot&&id===playerId)){
-      toast('Questo giocatore è già stato schierato. Scegli un altro calciatore.',true);render();return;
+      toast('Giocatore già assegnato: titolari e panchina non possono avere duplicati.',true);render();return;
     }
     if(playerId)draft.slots[slot]=playerId;else delete draft.slots[slot];
     draft.dirty=true;render();
   }
   async function saveFormation(){
-    if(!canManageFormation())throw new Error('Solo l’amministratore può salvare una formazione.');
+    if(!canManageFormation())throw new Error('Solo l’amministratore può salvare la formazione.');
     await requireMatchAdmin();
-    if(!state.schemaReady||state.sheetIds.Formazioni===undefined)throw new Error('Esegui aggiornaDatabaseV128 in Apps Script.');
-    const draft=ensureFormationDraft();
-    const positions=FORMATION_MODULES[draft.module].map(p=>p[0]);
-    const selected=positions.map(slot=>draft.slots[slot]);
-    if(selected.some(id=>!id)||new Set(selected).size!==7)throw new Error('Assegna sette giocatori diversi prima di salvare.');
-    const valid=new Set(playersInSeason(state.seasonId).map(p=>p.id));
-    if(selected.some(id=>!valid.has(id)))throw new Error('Uno o più giocatori non appartengono alla stagione selezionata.');
-    const prev=savedFormation(state.seasonId);
-    const values=[state.seasonId,draft.module,JSON.stringify(Object.fromEntries(positions.map(k=>[k,draft.slots[k]]))),new Date().toISOString()];
-    const succeeded=await withBusy(()=>writeAtomic([{sheet:'Formazioni',...(prev?{row:prev._row}:{}),rows:[values]}]));
-    if(succeeded){state.formationDraft=null;render();}
+    if(!state.schemaReady)throw new Error('Esegui aggiornaDatabaseV129 in Apps Script.');
+    const draft=ensureFormationDraft(),positions=FORMATION_MODULES[draft.module].map(p=>p[0]);
+    const starters=positions.map(k=>draft.slots[k]);
+    if(starters.some(id=>!id)||new Set(starters).size!==7)throw new Error('Assegna sette titolari diversi.');
+    const selected=Object.values(draft.slots).filter(Boolean),valid=new Set(playersInSeason(state.seasonId).map(p=>p.id));
+    if(new Set(selected).size!==selected.length||selected.some(id=>!valid.has(id)))throw new Error('Verifica rosa e duplicati tra campo e panchina.');
+    const now=new Date().toISOString();
+    const slots=Object.fromEntries([...positions,...BENCH_SLOTS].filter(k=>draft.slots[k]).map(k=>[k,draft.slots[k]]));
+    let sheet,prev,values;
+    if(state.formationMatchId){
+      const m=state.data.matches.find(m=>m.id===state.formationMatchId&&m.seasonId===state.seasonId);
+      if(!m)throw new Error('La partita associata non è presente nella stagione selezionata.');
+      sheet='FormazioniPartite';prev=savedMatchFormation(m.id);
+      values=[m.id,state.seasonId,draft.module,JSON.stringify(slots),now];
+    }else{
+      sheet='Formazioni';prev=savedFormation(state.seasonId);
+      values=[state.seasonId,draft.module,JSON.stringify(slots),now];
+    }
+    const success=await withBusy(()=>writeAtomic([{sheet,...(prev?{row:prev._row}:{}),rows:[values]}]));
+    if(success){state.formationDraft=null;render();}
   }
   function resetFormation(){state.formationDraft=null;render();}
 
@@ -678,7 +707,7 @@
   function renderSettings() {
     return intro('CONNESSIONE E DATI','Configurazione','Gestione del collegamento con il foglio Google e stato del progetto.')+banner()+
     `<div class="two-cards"><div class="panel"><div class="panel-heading"><h2 class="panel-title">🔐 Stato connessione</h2></div><div class="breakdown"><div><span>Versione applicazione</span><strong>${VERSION}</strong></div><div><span>Origine dati</span><strong>${state.source==='drive'?'Google Drive':'Demo locale'}</strong></div><div><span>Modalità</span><strong>${editor()?'Google OAuth attivo':'Sola consultazione'}</strong></div><div><span>Archivio</span><strong>${CFG.spreadsheetId?'Configurato':'Da configurare'}</strong></div></div><p class="notice">Le autorizzazioni di scrittura non sono affidate al sito GitHub: le controlla Google tramite i permessi del foglio.</p></div>
-      <div class="panel"><div class="panel-heading"><h2 class="panel-title">📂 Dove sono salvati i dati?</h2></div><p class="form-guide">Tutte le informazioni sono conservate in un unico Google Sheets nel tuo Drive, diviso in 12 schede.</p><div class="breakdown">${SHEETS.map(s=>`<div><span>${esc(s)}</span><strong>Google Sheets</strong></div>`).join('')}</div>${CFG.spreadsheetId?`<p><a target="_blank" rel="noopener noreferrer" href="https://docs.google.com/spreadsheets/d/${encodeURIComponent(CFG.spreadsheetId)}/edit">Apri archivio Google Sheets ↗</a></p>`:''}</div></div>
+      <div class="panel"><div class="panel-heading"><h2 class="panel-title">📂 Dove sono salvati i dati?</h2></div><p class="form-guide">Tutte le informazioni sono conservate in un unico Google Sheets nel tuo Drive, diviso in 13 schede.</p><div class="breakdown">${SHEETS.map(s=>`<div><span>${esc(s)}</span><strong>Google Sheets</strong></div>`).join('')}</div>${CFG.spreadsheetId?`<p><a target="_blank" rel="noopener noreferrer" href="https://docs.google.com/spreadsheets/d/${encodeURIComponent(CFG.spreadsheetId)}/edit">Apri archivio Google Sheets ↗</a></p>`:''}</div></div>
     <div class="panel mt-20"><div class="panel-heading"><h2 class="panel-title">🎨 Ruoli, stati e colori</h2></div><p class="form-guide">Personalizza ruoli e stati, compreso il colore di ciascuno. Il tipo Portiere resta un attributo dei ruoli. Le scelte sono memorizzate su Google Sheets e sono valide per tutti.</p><div class="intro-buttons"><button class="btn btn-secondary only-editor" data-action="manage-roles">Gestisci ruoli e colori</button><button class="btn btn-secondary only-editor" data-action="manage-states">Gestisci stati e colori</button></div><div class="catalog-overview">${availableRoles().map(x=>roleBadge(x.name)).join(' ')}${availableStates().map(x=>statusBadge(x.id)).join(' ')}</div></div>
     <div class="panel mt-20"><div class="panel-heading"><h2 class="panel-title">🚀 Messa online</h2></div><div class="two-cards"><div class="info-step"><h3>1. Aggiorna il database esistente</h3><p>Solo se parti da una versione precedente alla v1.11 esegui <strong>aggiornaDatabaseV111</strong> in Apps Script: aggiunge le colonne per il ruolo partita e per distinguere gol fatti/subiti, preservando i dati. Da versioni precedenti alla v1.9 occorre prima aggiornare lo schema AutogolFavore.</p></div><div class="info-step"><h3>2. Proteggi l'accesso amministrativo</h3><p>Mantieni gli ID già funzionanti in <strong>config.js</strong> e aggiungi la proprietà <strong>adminEmail</strong> con la tua email Google. La cancellazione delle partite sarà disponibile soltanto dopo l'identificazione dell'account amministratore. Non condividere i permessi Editor del Google Sheet con altri utenti.</p></div><div class="info-step"><h3>3. Aggiorna alla v1.23</h3><p>Per la v1.23, esegui <strong>aggiornaDatabaseV123</strong> una sola volta dopo un backup del foglio, poi sostituisci <strong>index.html, app.js e styles.css</strong>. Il nuovo flag esclude la distinta dai totali senza modificare il Pregresso.</p></div><div class="info-step"><h3>4. Campionato storico 2025/26</h3><p>Seleziona 2025/26 → Campionato e collega i widget ufficiali del Girone B. I vecchi widget del Girone A sono esclusi. Per importare classifica e calendario in-app usa i pulsanti di importazione. Solo se vuoi registrare i risultati anche nelle partite interne della squadra, usa l’importazione CSV; i dati individuali storici non vengono modificati dai widget.</p></div></div><p class="notice mt-20">Per tutte le istruzioni operative, vedere il file LEGGIMI.md incluso nel progetto.</p></div>`;
   }
@@ -779,7 +808,7 @@
     const contributorsSection=(title,items,icon)=>`<section class="match-contributors-block"><h4>${icon} ${title}</h4>${items.length?`<div class="match-contributors-list">${items.map(x=>`<span class="match-contributor">${esc(x.name)} <strong>${x.count}</strong></span>`).join('')}</div>`:'<p class="match-contributors-empty">Nessun dato inserito nella distinta</p>'}</section>`;
     const contributors=lines.length?`<div class="match-contributors">${contributorsSection('Marcatori',matchContributors('goals'),'⚽')}${contributorsSection('Assist',matchContributors('assists'),'🎯')}</div>`:'';
     const body=`<div class="eyebrow">${localeDate(m.date)} · ${esc(m.competition||'Partita')}</div><h3 class="page-title" style="font-size:27px">${esc(f.home)} <span class="muted">vs</span> ${esc(f.away)} <span class="accent-green">${f.homeGoals} — ${f.awayGoals}</span></h3><p class="page-subtitle">${m.venue==='T'?'Trasferta':'Casa'} · ${resultLabel(matchResult(m))}</p>${positiveInt(m.ownGoalsFor)?`<p class="modal-explainer">⚽ Autogol a favore: <strong>${positiveInt(m.ownGoalsFor)}</strong> (non assegnati ai marcatori).</p>`:''}${m.notes?`<p class="modal-explainer">${esc(m.notes)}</p>`:''}${m.noStats?'<p class="notice">Questa distinta è archiviata ma NON contribuisce alle statistiche dei giocatori.</p>':''}${contributors}<hr class="soft-rule"><h3 class="panel-title">Distinta e statistiche</h3><div class="table-shell mt-20"><table class="data-table" style="min-width:560px"><thead><tr><th>Giocatore</th><th>Ruolo partita</th><th>Conv.</th><th>Pres.</th><th>Gol</th><th>Assist</th><th>Gialli</th><th>Rossi</th></tr></thead><tbody>${lines.map(l=>{const p=state.data.players.find(p=>p.id===l.playerId);return `<tr><td>${esc(p?name(p):'Giocatore non trovato')}</td><td>${matchKeeper(l,m.seasonId)?'🧤 Portiere':'Movimento'}</td><td>${one(l.called)?'✓':'—'}</td><td>${one(l.played)?'✓':'—'}</td><td>${goalText(l)}</td><td>${positiveInt(l.assists)}</td><td>${positiveInt(l.yellow)}</td><td>${positiveInt(l.red)}</td></tr>`}).join('')}</tbody></table></div>${!lines.length?'<p class="form-guide">Nessuna distinta presente per questa partita. Puoi aggiungerla con Modifica partita e distinta.</p>':''}`;
-    modal(`Partita contro ${m.opponent}`,body,`<button class="btn btn-secondary" data-action="close-modal">Chiudi</button><button class="btn btn-primary only-editor" data-action="edit-match" data-id="${esc(m.id)}">Modifica partita e distinta</button>${canDeleteMatch()?`<button class="btn btn-danger" data-action="delete-match" data-id="${esc(m.id)}">✕ Elimina partita</button>`:''}`,true);
+    modal(`Partita contro ${m.opponent}`,body,`<button class="btn btn-secondary" data-action="close-modal">Chiudi</button><button class="btn btn-primary only-editor" data-action="edit-match" data-id="${esc(m.id)}">Modifica partita e distinta</button>${canManageFormation()?`<button class="btn btn-secondary" data-action="match-formation" data-id="${esc(m.id)}">⚽ Formazione partita</button>`:''}${canDeleteMatch()?`<button class="btn btn-danger" data-action="delete-match" data-id="${esc(m.id)}">✕ Elimina partita</button>`:''}`,true);
   }
   function deleteMatchConfirm(matchId) {
     if(!canDeleteMatch()||state.busy||state.inlineSaving){
@@ -817,16 +846,19 @@
       if(!match || JSON.stringify({match,lineups:lines})!==oldSignature)
         throw new Error('La partita o la distinta sono cambiate su Drive. Aggiorna la pagina e riprova.');
       const matchSheet=state.sheetIds.Partite,lineupSheet=state.sheetIds.Distinte;
+      const linked=fresh.matchFormations.find(f=>f.matchId===matchId);
       if(matchSheet===undefined||lineupSheet===undefined)throw new Error('Schede Partite/Distinte non trovate.');
       const rowDelete=(sheetId,row)=>({deleteDimension:{range:{sheetId,dimension:'ROWS',startIndex:row-1,endIndex:row}}});
       const requests=[...lines].sort((a,b)=>b._row-a._row).map(l=>rowDelete(lineupSheet,l._row));
+      if(linked)requests.push(rowDelete(state.sheetIds.FormazioniPartite,linked._row));
       requests.push(rowDelete(matchSheet,match._row));
       await googleAPI(':batchUpdate',{method:'POST',body:JSON.stringify({requests})});
       // Aggiorna anche lo stato locale in caso di errore temporaneo del reload.
       state.data.matches=state.data.matches.filter(m=>m.id!==matchId);
       state.data.lineups=state.data.lineups.filter(l=>l.matchId!==matchId);
+      state.data.matchFormations=(state.data.matchFormations||[]).filter(f=>f.matchId!==matchId);
     });
-    if(saved){state.seasonId=old.seasonId;navigate('matches');toast('Partita e relativa distinta eliminate. Statistiche aggiornate.');}
+    if(saved){if(state.formationMatchId===matchId){state.formationMatchId='';state.formationDraft=null;}state.seasonId=old.seasonId;navigate('matches');toast('Partita e relativa distinta eliminate. Statistiche aggiornate.');}
   }
   function editMatchForm(matchId) { matchForm(matchId); }
   function baselineForm(playerId) {
@@ -914,7 +946,7 @@
     };
     const rows=[labels,...playerRows().map((p,i)=>[i+1,...fields.map(k=>k==='seasons'?seasonsPlayed(p.id):k==='role'?rolesText(p.role):k==='goals'?rosterGoalText(p):p[k])])];
     const csv='\ufeff'+rows.map(row=>row.map(escapeCSV).join(';')).join('\r\n');
-    const blob=new Blob([csv],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=el('a',{href:url,download:`expats-fc-${state.seasonId}-v1.28.csv`});
+    const blob=new Blob([csv],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=el('a',{href:url,download:`expats-fc-${state.seasonId}-v1.29.csv`});
     document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),2000);toast('Classifica esportata in CSV.');
   }
   // --- Google Drive: lettura pubblica via Google Visualization JSONP ---
@@ -961,16 +993,17 @@
     expected.push([9,0,['StagioneID','ImportID','Giornata','Data','Casa','Trasferta','GolCasa','GolTrasferta']]);
     expected.push([10,0,['StagioneID','Tipo','URL','AggiornatoIl']]);
     expected.push([11,0,['StagioneID','Modulo','GiocatoriJSON','AggiornatoIl']]);
+    expected.push([12,0,['PartitaID','StagioneID','Modulo','GiocatoriJSON','AggiornatoIl']]);
     state.schemaReady=expected.every(([index,start,columns])=>columns.every((v,i)=>String(ranges[index]?.values?.[0]?.[start+i]||'').trim()===v));
-    if(!state.schemaReady)throw new Error('Il database richiede la migrazione v1.28: esegui aggiornaDatabaseV128 in Apps Script.');
+    if(!state.schemaReady)throw new Error('Il database richiede la migrazione v1.29: esegui aggiornaDatabaseV129 in Apps Script.');
     return decodeSheets(ranges.map(x=>(x.values||[]).slice(1)));
   }
   async function loadPublic() {
-    const tables=await Promise.all(SHEETS.map((sheet,i)=>sheet==='Formazioni'?Promise.resolve([]):i<8?gvizSheet(sheet):gvizSheet(sheet).catch(()=>[])));
+    const tables=await Promise.all(SHEETS.map((sheet,i)=>(sheet==='Formazioni'||sheet==='FormazioniPartite')?Promise.resolve([]):i<8?gvizSheet(sheet):gvizSheet(sheet).catch(()=>[])));
     return decodeSheets(tables);
   }
   function decodeSheets(arrays) {
-    const [p,s,m,l,b,t,rr,ss,cc,cp,cw,ff]=arrays;
+    const [p,s,m,l,b,t,rr,ss,cc,cp,cw,ff,fm]=arrays;
     const trimmed=rows=>(rows||[]).filter(row=>row?.some(x=>String(x??'').trim()!==''));
     const str=x=>String(x??'').trim();
     const players=(p||[]).map((r,i)=>({id:str(r[0]),number:num(r[1]),firstName:str(r[2]),lastName:str(r[3]),status:str(r[4])||'ATTIVO',role:str(r[5]),notes:str(r[6]),_row:i+2})).filter(x=>x.id);
@@ -985,8 +1018,9 @@
     const leagueStandings=(cc||[]).map((r,i)=>({seasonId:str(r[0]),batch:str(r[1]),team:str(r[2]),pg:positiveInt(r[3]),win:positiveInt(r[4]),draw:positiveInt(r[5]),loss:positiveInt(r[6]),gf:positiveInt(r[7]),ga:positiveInt(r[8]),pts:num(r[9]),_row:i+2})).filter(x=>x.seasonId&&x.team&&x.batch);
     const leagueFixtures=(cp||[]).map((r,i)=>({seasonId:str(r[0]),batch:str(r[1]),round:str(r[2]),date:padDate(r[3]),home:str(r[4]),away:str(r[5]),hg:r[6]===''||r[6]==null?null:positiveInt(r[6]),ag:r[7]===''||r[7]==null?null:positiveInt(r[7]),_row:i+2})).filter(x=>x.seasonId&&x.home&&x.away&&x.batch);
     const leagueWidgets=(cw||[]).map((r,i)=>({seasonId:str(r[0]),type:str(r[1]),url:str(r[2]),updatedAt:str(r[3]),_row:i+2})).filter(x=>x.seasonId&&LEAGUE_WIDGET_TYPES.includes(x.type));
-    const formations=(ff||[]).map((r,i)=>{let slots={};try{const obj=JSON.parse(str(r[2])||'{}');if(obj && !Array.isArray(obj) && typeof obj==='object')slots=Object.fromEntries(Object.entries(obj).filter(([key,val])=>/^(?:GK|A1|D[1-3]|M[1-3])$/.test(key)&&typeof val==='string'));}catch(_){/* record incompleto */}return {seasonId:str(r[0]),module:str(r[1]),slots,updatedAt:str(r[3]),_row:i+2};}).filter(x=>x.seasonId);
-    return {players,seasons,matches,lineups,baseline,memberships,leagueStandings,leagueFixtures,leagueWidgets,formations,roles:roles.length?roles:structuredClone(legacyRoles),states:states.length?states:structuredClone(legacyStates)};
+    const formations=(ff||[]).map((r,i)=>{let slots={};try{const obj=JSON.parse(str(r[2])||'{}');if(obj && !Array.isArray(obj) && typeof obj==='object')slots=Object.fromEntries(Object.entries(obj).filter(([key,val])=>/^(?:GK|A1|D[1-3]|M[1-3]|B[1-5])$/.test(key)&&typeof val==='string'));}catch(_){/* record incompleto */}return {seasonId:str(r[0]),module:str(r[1]),slots,updatedAt:str(r[3]),_row:i+2};}).filter(x=>x.seasonId);
+    const matchFormations=(fm||[]).map((r,i)=>{let slots={};try{const obj=JSON.parse(str(r[3])||'{}');if(obj&&typeof obj==='object'&&!Array.isArray(obj))slots=Object.fromEntries(Object.entries(obj).filter(([k,v])=>/^(?:GK|A1|D[1-3]|M[1-3]|B[1-5])$/.test(k)&&typeof v==='string'));}catch(_){}return {matchId:str(r[0]),seasonId:str(r[1]),module:str(r[2]),slots,updatedAt:str(r[4]),_row:i+2};}).filter(x=>x.matchId);
+    return {players,seasons,matches,lineups,baseline,memberships,leagueStandings,leagueFixtures,leagueWidgets,formations,matchFormations,roles:roles.length?roles:structuredClone(legacyRoles),states:states.length?states:structuredClone(legacyStates)};
   }
   async function refreshData() {
     if(!CFG.spreadsheetId) {state.source='demo';render();return;}
@@ -1034,10 +1068,10 @@
     return googleAPI(':batchUpdate',{method:'POST',body:JSON.stringify({requests})});
   }
   async function writeAtomic(ops) {
-    if(!state.schemaReady)throw new Error('Aggiorna lo schema Google Sheets alla v1.28 eseguendo aggiornaDatabaseV128.');
+    if(!state.schemaReady)throw new Error('Aggiorna lo schema Google Sheets alla v1.29 eseguendo aggiornaDatabaseV129.');
     const requests=ops.filter(op=>op.rows?.length).map(op=>{
       const sheetId=state.sheetIds[op.sheet];
-      if(sheetId===undefined)throw new Error('Scheda '+op.sheet+' mancante. Esegui aggiornaDatabaseV128 in Apps Script.');
+      if(sheetId===undefined)throw new Error('Scheda '+op.sheet+' mancante. Esegui aggiornaDatabaseV129 in Apps Script.');
       if(op.row) return {updateCells:{start:{sheetId,rowIndex:op.row-1,columnIndex:0},rows:op.rows.map(rowCells),fields:'userEnteredValue'}};
       return {appendCells:{sheetId,rows:op.rows.map(rowCells),fields:'userEnteredValue'}};
     });
@@ -1438,6 +1472,7 @@
     if(action==='close-modal')closeModal();
     else if(action==='save-formation')saveFormation().catch(e=>toast(safeError(e),true));
     else if(action==='reset-formation')resetFormation();
+    else if(action==='match-formation'){const match=state.data.matches.find(m=>m.id===btn.dataset.id);if(match&&canManageFormation()){closeModal();state.seasonId=match.seasonId;state.formationMatchId=match.id;state.formationDraft=null;navigate('formation');}}
     else if(action==='league-widgets')leagueWidgetsDialog();
     else if(action==='league-widgets-save')leagueWidgetsSave().catch(e=>toast(safeError(e),true));
     else if(action==='league-tab'){state.leagueTab=btn.dataset.tab==='calendario'?'calendario':'classifica';render();}
@@ -1487,9 +1522,10 @@
       }
     }
     if(event.target.id==='formation-module'){changeFormationModule(event.target.value);return;}
+    if(event.target.id==='formation-match'){state.formationMatchId=event.target.value;state.formationDraft=null;render();return;}
     if(event.target.dataset.formationSlot){changeFormationPlayer(event.target.dataset.formationSlot,event.target.value);return;}
     if(event.target.id==='confirm-match-deletion'){const button=$('#confirm-delete-match-btn');if(button)button.disabled=!event.target.checked;}
-    if(event.target.id==='season-select'){state.seasonId=event.target.value;render();}
+    if(event.target.id==='season-select'){state.seasonId=event.target.value;state.formationMatchId='';state.formationDraft=null;render();}
     else if(event.target.id==='roster-scope'){state.rosterScope=event.target.value;$('#players-tbody').innerHTML=playersTable();}
     else if(event.target.id==='league-csv-file'){const file=event.target.files?.[0];if(file)file.text().then(text=>{const input=$('#league-csv-paste');if(input){input.value=text;state.leagueImport=null;$('#league-import-save').disabled=true;$('#league-import-preview').replaceChildren();}}).catch(e=>toast(safeError(e),true));}
     else if(event.target.id==='csv-file'){const file=event.target.files?.[0];if(file){file.text().then(text=>{const target=$('#csv-paste');if(target){target.value=text;state.importPreview=null;$('#execute-import').disabled=true;$('#import-preview').replaceChildren();}}).catch(e=>toast(safeError(e),true));}}
