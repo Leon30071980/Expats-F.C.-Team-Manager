@@ -1,4 +1,4 @@
-/* EXPATS F.C. TEAM MANAGER — v1.33
+/* EXPATS F.C. TEAM MANAGER — v1.34
  * Frontend statico GitHub Pages + Google Sheets API (edit via OAuth) + GViz JSONP (pubblico).
  * Il controllo delle modifiche dipende dai permessi Google Drive sul foglio.
  */
@@ -6,7 +6,7 @@
   'use strict';
   const CFG = window.EXPATS_CONFIG;
   const SHEETS = ['Giocatori','Stagioni','Partite','Distinte','Pregresso','Tesseramenti','Ruoli','Stati','CampionatoClassifica','CampionatoPartite','CampionatoWidget','Formazioni','FormazioniPartite','EventiGol','IdoneitaRosa'];
-  const VERSION='v1.33';
+  const VERSION='v1.34';
   const state = {
     data: structuredClone(window.EXPATS_DEMO),
     source: 'demo', view: 'league', seasonId: '', rosterScope: 'season',
@@ -289,7 +289,7 @@
   function renderNav() {
     $('#nav').innerHTML=NAV.filter(([id])=>id==='formation'||id==='athletes'?canManageFormation():id==='settings'?editor():true).map(([id,ico,label])=>`<button class="nav-item ${state.view===id?'active':''}" data-nav="${id}"><span class="nav-icon">${ico}</span>${esc(label)}</button>`).join('');
     $('#current-label').textContent=NAV.find(x=>x[0]===state.view)?.[2] || 'Panoramica';
-    $('#auth-btn').textContent=editor()?'Disconnetti Google':'Accedi con Google';
+    $('#auth-btn').textContent=editor()?'Disconnetti Google':'Login';
     $('#auth-btn').className=editor()?'btn btn-secondary':'btn btn-outline';
     $('#live-dot').className='online-indicator '+(state.source==='drive'?'connected':'');
     $('#sidebar-source').textContent=state.source==='demo'?'Anteprima dimostrativa':editor()?'Google Drive connesso':'Expats F.C.';
@@ -479,7 +479,14 @@
   // v1.21: widget campionato in layout classico senza ridimensionamento.
   // Lo sfondo bianco esterno e' sostituito dall'effetto grafico CSS sul frame.
   // Non accediamo al DOM di Tuttocampo: rimane un iframe cross-origin.
-  const embedLeagueWidget=(url,title,type)=>`<div class="league-embed-wrap"><div class="league-embed-head"><span class="league-embed-mark">Dati Tuttocampo</span><span>Aggiornamento gestito dalla fonte</span></div><iframe class="league-embed league-embed-${type.toLowerCase()}" src="${esc(url)}" title="${esc(title)}" loading="lazy" sandbox="allow-scripts allow-same-origin allow-popups" referrerpolicy="strict-origin-when-cross-origin"></iframe></div>`;
+  // v1.34: i frame di partita sono una visualizzazione statica e ritagliata,
+  // senza filtri ai colori o agli stemmi. I risultati rimangono visibili
+  // integralmente alla dimensione configurata; su touch non catturano lo scroll.
+  // Il contenuto cross-origin non è misurabile automaticamente.
+  const embedLeagueWidget=(url,title,type)=>{
+    const matchWidget=type==='UltimaPartita'||type==='ProssimaPartita';
+    return `<div class="league-embed-wrap ${matchWidget?'league-embed-wrap-match':''}">${matchWidget?'':`<div class="league-embed-head"><span class="league-embed-mark">Dati Tuttocampo</span><span>Aggiornamento gestito dalla fonte</span></div>`}<iframe class="league-embed league-embed-${type.toLowerCase()}" src="${esc(url)}" title="${esc(title)}" loading="lazy" scrolling="no" sandbox="allow-scripts allow-same-origin allow-popups" referrerpolicy="strict-origin-when-cross-origin"></iframe></div>`;
+  };
   const leagueStamp=batch=>batch?new Date(batch).toLocaleString('it-IT',{dateStyle:'medium',timeStyle:'short'}):'Nessuna importazione';
   function renderLeague() {
     const season=activeSeason(),standings=leagueLatest(state.data.leagueStandings,season.id),fixtures=leagueLatest(state.data.leagueFixtures,season.id);
