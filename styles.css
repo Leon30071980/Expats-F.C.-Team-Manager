@@ -297,3 +297,49 @@ button,input,select,textarea{font-family:inherit}
 .delete-match-check{margin-top:18px;display:flex;align-items:flex-start;gap:11px;line-height:1.5;color:#e3eaf4;font-size:15px;cursor:pointer}
 .delete-match-check input{margin-top:5px;accent-color:#d35f76;width:18px;height:18px;flex-shrink:0}
 @media(max-width:640px){.match-delete-btn{font-size:12px;padding:7px 9px}.results-head{flex-wrap:wrap;justify-content:flex-end}}
+
+
+/* v1.24 — Oro ispirato allo scudo Expats F.C. (solo dati propri/nativi).
+   Gli iframe Tuttocampo restano intatti: non è possibile modificarne le righe. */
+:root {
+  --expats-shield-gold: #ae8739;
+  --expats-gold-border: #c49b4b;
+  --expats-gold-text: #ffdda0;
+}
+/* Elenco incontri, anche nella panoramica: tutte le righe riguardano gli Expats. */
+.result-line.result-line-expats {
+  background: linear-gradient(105deg,rgba(174,135,57,.34),rgba(111,82,30,.25));
+  border: 1px solid rgba(196,155,75,.64);
+  border-left: 5px solid var(--expats-shield-gold);
+  border-radius: 11px;
+  padding: 14px 16px;
+  margin: 8px 0;
+  box-shadow: inset 0 1px rgba(255,223,167,.05);
+}
+.result-line.result-line-expats:hover {
+  background: linear-gradient(105deg,rgba(174,135,57,.48),rgba(111,82,30,.33));
+  border-color: #e0bc71;
+}
+.result-line.result-line-expats .opponent {color: #fff3da;}
+.result-line.result-line-expats .score {color: var(--expats-gold-text);}
+/* Tabelle native del Campionato: classifica e calendario importati. */
+.league-table tbody tr.league-expats > td,
+.league-table tbody tr.league-expats:hover > td {
+  background: #55421f !important;
+  border-top: 1px solid #a9853c;
+  border-bottom: 1px solid #a9853c;
+  color: #fff1d5;
+}
+.league-table tbody tr.league-expats > td:first-child {
+  box-shadow: inset 5px 0 0 var(--expats-shield-gold);
+}
+.league-table tbody tr.league-expats .league-team,
+.league-table tbody tr.league-expats .league-team-expats,
+.league-table tbody tr.league-expats .league-points,
+.league-table tbody tr.league-expats .league-score {
+  color: #ffe3a9;
+  font-weight: 900;
+}
+@media(max-width:640px) {
+  .result-line.result-line-expats {padding: 12px 11px;gap:8px;}
+}
