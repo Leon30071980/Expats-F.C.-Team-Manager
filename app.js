@@ -1,17 +1,17 @@
-/* EXPATS F.C. TEAM MANAGER — v1.27
+/* EXPATS F.C. TEAM MANAGER — v1.28
  * Frontend statico GitHub Pages + Google Sheets API (edit via OAuth) + GViz JSONP (pubblico).
  * Il controllo delle modifiche dipende dai permessi Google Drive sul foglio.
  */
 (() => {
   'use strict';
   const CFG = window.EXPATS_CONFIG;
-  const SHEETS = ['Giocatori','Stagioni','Partite','Distinte','Pregresso','Tesseramenti','Ruoli','Stati','CampionatoClassifica','CampionatoPartite','CampionatoWidget'];
-  const VERSION='v1.27';
+  const SHEETS = ['Giocatori','Stagioni','Partite','Distinte','Pregresso','Tesseramenti','Ruoli','Stati','CampionatoClassifica','CampionatoPartite','CampionatoWidget','Formazioni'];
+  const VERSION='v1.28';
   const state = {
     data: structuredClone(window.EXPATS_DEMO),
     source: 'demo', view: 'league', seasonId: '', rosterScope: 'season',
     sort: {key:'number',dir:1}, search:'', filter:'TUTTI', leagueTab:'calendario',
-    token: '', accountEmail:'', sheetIds: {}, schemaReady:false, busy: false, inlineSaving:false, lastError: ''
+    token: '', accountEmail:'', sheetIds: {}, schemaReady:false, busy: false, inlineSaving:false, lastError: '', formationDraft:null
   };
   const $ = (sel, root=document) => root.querySelector(sel);
   const el = (name, attrs={}) => Object.assign(document.createElement(name), attrs);
@@ -75,6 +75,8 @@
   // permessi di modifica del Google Sheet. Non condividerlo con altri editor.
   const adminEmail=()=>String(CFG.adminEmail||'').trim().toLowerCase();
   const canDeleteMatch=()=>editor() && !!adminEmail() && state.accountEmail===adminEmail();
+  // La pagina Formazione e la scrittura sono riservate all'account amministratore.
+  const canManageFormation=()=>canDeleteMatch();
   async function verifyGoogleIdentity() {
     if (!state.token) throw new Error('Accedi con Google per eliminare una partita.');
     const result=await fetch('https://openidconnect.googleapis.com/v1/userinfo',{
@@ -259,12 +261,11 @@
   const NAV = [
     ['dashboard','◈','Panoramica'],['players','♙','Rosa giocatori'],
     ['matches','⚽','Partite e risultati'],['rankings','▥','Statistiche'],['league','🏆','Campionato'],
-    ['seasons','▦','Storico stagioni'],['settings','⚙','Configurazione']
+    ['seasons','▦','Storico stagioni'],['formation','⚽','Formazione'],['settings','⚙','Configurazione']
   ];
   function renderNav() {
-    $('#nav').innerHTML=NAV.map(([id,ico,label])=>`<button class="nav-item ${state.view===id?'active':''}" data-nav="${id}"><span class="nav-icon">${ico}</span>${esc(label)}</button>`).join('');
+    $('#nav').innerHTML=NAV.filter(([id])=>id==='formation'?canManageFormation():id==='settings'?editor():true).map(([id,ico,label])=>`<button class="nav-item ${state.view===id?'active':''}" data-nav="${id}"><span class="nav-icon">${ico}</span>${esc(label)}</button>`).join('');
     $('#current-label').textContent=NAV.find(x=>x[0]===state.view)?.[2] || 'Panoramica';
-    $('#season-select').innerHTML=state.data.seasons.map(s=>`<option value="${esc(s.id)}" ${s.id===state.seasonId?'selected':''}>${esc(s.name)}</option>`).join('');
     $('#auth-btn').textContent=editor()?'Disconnetti Google':'Accedi con Google';
     $('#auth-btn').className=editor()?'btn btn-secondary':'btn btn-outline';
     $('#live-dot').className='online-indicator '+(state.source==='drive'?'connected':'');
@@ -279,7 +280,9 @@
     return `<div class="status-banner success"><span>●</span><span>Accesso amministratore Google attivo</span></div>`;
   }
   function intro(kicker,title,desc,actions='') {
-    return `<div class="page-intro"><div><div class="eyebrow">${esc(kicker)}</div><h1 class="page-title">${esc(title)}</h1><p class="page-subtitle">${esc(desc)}</p></div>${actions?`<div class="intro-buttons">${actions}</div>`:''}</div>`;
+    // Selettore ben visibile in ogni pagina; la barra superiore rimane dedicata al login.
+    const seasonChoice=`<label class="page-season" for="season-select"><span class="page-season-label">◷ STAGIONE</span><select id="season-select" aria-label="Seleziona la stagione visualizzata">${state.data.seasons.map(s=>`<option value="${esc(s.id)}" ${s.id===state.seasonId?'selected':''}>${esc(s.name)}</option>`).join('')}</select></label>`;
+    return `<div class="page-intro"><div class="page-intro-copy"><div class="eyebrow">${esc(kicker)}</div><h1 class="page-title">${esc(title)}</h1><p class="page-subtitle">${esc(desc)}</p></div><div class="intro-tools">${seasonChoice}${actions?`<div class="intro-buttons">${actions}</div>`:''}</div></div>`;
   }
   const newMatchButton = () => `<button class="btn btn-primary only-editor" data-action="new-match">＋ Registra partita</button>`;
   const empty = (emoji,msg,sub='') => `<div class="empty-state"><div class="empty-emoji">${emoji}</div><strong>${esc(msg)}</strong>${sub?`<p>${esc(sub)}</p>`:''}</div>`;
@@ -582,6 +585,91 @@
     const a=el('a',{href:url,download:`expats-fc-campionato-${kind}-modello.csv`});document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),2000);
   }
 
+  // Formazione 7 contro 7: una formazione salvata per ciascuna stagione.
+  // I moduli sono due: 2-3-1 e 3-2-1, più il portiere obbligatorio.
+  const FORMATION_MODULES={
+    '2-3-1':[
+      ['A1','Attaccante',50,13],
+      ['M1','Centrocampista sx',18,42],['M2','Centrocampista centro',50,42],['M3','Centrocampista dx',82,42],
+      ['D1','Difensore sx',32,69],['D2','Difensore dx',68,69],
+      ['GK','Portiere',50,91]
+    ],
+    '3-2-1':[
+      ['A1','Attaccante',50,13],
+      ['M1','Centrocampista sx',32,42],['M2','Centrocampista dx',68,42],
+      ['D1','Difensore sx',18,69],['D2','Difensore centro',50,69],['D3','Difensore dx',82,69],
+      ['GK','Portiere',50,91]
+    ]
+  };
+  const savedFormation=sid=>(state.data.formations||[]).find(f=>f.seasonId===sid);
+  function ensureFormationDraft(){
+    if(state.formationDraft?.seasonId===state.seasonId)return state.formationDraft;
+    const saved=savedFormation(state.seasonId);
+    const module=FORMATION_MODULES[saved?.module]?saved.module:'2-3-1';
+    const allowed=new Set(playersInSeason(state.seasonId).map(p=>p.id));
+    const slots={};const occupied=new Set();
+    for(const [position,playerId] of Object.entries(saved?.slots||{})){
+      if(allowed.has(playerId) && !occupied.has(playerId)){slots[position]=playerId;occupied.add(playerId);}
+    }
+    state.formationDraft={seasonId:state.seasonId,module,slots,dirty:false};
+    return state.formationDraft;
+  }
+  function renderFormation(){
+    if(!canManageFormation())return intro('ACCESSO RISERVATO','Formazione','Accedi con il tuo account amministratore.');
+    const draft=ensureFormationDraft(), positions=FORMATION_MODULES[draft.module];
+    const roster=playersInSeason(state.seasonId).sort((x,y)=>num(x.number)-num(y.number)||name(x).localeCompare(name(y),'it'));
+    const selectors=positions.map(([slot,role,x,y])=>{
+      const selected=draft.slots[slot]||'';
+      const player=roster.find(p=>p.id===selected);
+      const number=player?(slot==='GK'?keeperKitNumber(player):player.number):'–';
+      return `<div class="formation-position" style="--x:${x}%;--y:${y}%" data-position="${slot}">
+        <div class="formation-player-shirt">${jersey(number,false,slot==='GK')}</div>
+        <span class="formation-selected-name">${player?esc(name(player)):'Da assegnare'}</span>
+        <label class="formation-position-label" for="formation-${slot}">${esc(role)}</label>
+        <select id="formation-${slot}" class="formation-player-select" data-formation-slot="${slot}" aria-label="Giocatore in posizione ${esc(role)}"><option value="">Seleziona…</option>${roster.map(p=>`<option value="${esc(p.id)}" ${selected===p.id?'selected':''}>${esc(p.number)} · ${esc(name(p))}${isUnavailable(p)?' · Indisponibile':''}</option>`).join('')}</select>
+      </div>`;
+    }).join('');
+    const chosen=Object.values(draft.slots).filter(Boolean).length;
+    const status=chosen===7?'7 giocatori schierati':`${chosen} di 7 giocatori schierati`;
+    const saved=savedFormation(state.seasonId);
+    return intro('AREA TECNICA · SOLO AMMINISTRATORE','Formazione',`Calcio a 7 · ${activeSeason().name}`)+banner()+
+      `<section class="formation-toolbar panel"><div class="formation-controls"><label for="formation-module">Modulo tattico</label><select id="formation-module" class="form-control" aria-label="Seleziona modulo tattico"><option value="2-3-1" ${draft.module==='2-3-1'?'selected':''}>2-3-1</option><option value="3-2-1" ${draft.module==='3-2-1'?'selected':''}>3-2-1</option></select></div><div class="formation-meta"><span class="chip neutral" id="formation-count">${status}</span><span class="formation-save-status" id="formation-save-status">${draft.dirty?'Modifiche non salvate':saved?`Ultimo salvataggio: ${esc(saved.updatedAt||'registrato')}`:'Nessuna formazione salvata'}</span></div><button class="btn btn-primary" data-action="save-formation" id="save-formation-btn" ${chosen===7?'':'disabled'}>Salva formazione</button></section>
+      <div class="formation-layout"><div class="formation-field-frame"><div class="formation-pitch" role="group" aria-label="Campo di calcio a 7 con posizioni selezionabili"><div class="pitch-midline"></div><div class="pitch-midcircle"></div><div class="pitch-box pitch-box-top"></div><div class="pitch-box pitch-box-bottom"></div><div class="pitch-smallbox pitch-smallbox-top"></div><div class="pitch-smallbox pitch-smallbox-bottom"></div><div class="pitch-goal pitch-goal-top"></div><div class="pitch-goal pitch-goal-bottom"></div>${selectors}</div></div>
+      <aside class="formation-aside panel"><h2 class="panel-title">La tua formazione</h2><p class="page-subtitle">Assegna i sette giocatori dai menu sul campo. Le maglie e i numeri dipendono dalla stagione selezionata.</p><div class="formation-summary">${positions.map(([slot,role])=>{const p=roster.find(x=>x.id===draft.slots[slot]);return `<div class="formation-summary-row"><span>${esc(role)}</span><strong>${p?esc(name(p)):'—'}</strong></div>`}).join('')}</div><p class="form-guide">I giocatori indisponibili possono essere selezionati per preparare una formazione futura. Lo stesso giocatore non può occupare due posizioni. Le modifiche vengono salvate su Google Sheets soltanto premendo «Salva formazione».</p><button class="btn btn-secondary" data-action="reset-formation" type="button">Ripristina formazione salvata</button></aside></div>`;
+  }
+  function changeFormationModule(module){
+    const draft=ensureFormationDraft();if(!FORMATION_MODULES[module]||draft.module===module)return;
+    const positions=new Set(FORMATION_MODULES[module].map(x=>x[0]));
+    draft.slots=Object.fromEntries(Object.entries(draft.slots).filter(([slot])=>positions.has(slot)));
+    draft.module=module;draft.dirty=true;render();
+  }
+  function changeFormationPlayer(slot,playerId){
+    const draft=ensureFormationDraft();
+    if(!FORMATION_MODULES[draft.module].some(row=>row[0]===slot))return;
+    if(playerId&&!playersInSeason(state.seasonId).some(p=>p.id===playerId)){toast('Giocatore non presente nella rosa della stagione.',true);render();return;}
+    if(playerId&&Object.entries(draft.slots).some(([s,id])=>s!==slot&&id===playerId)){
+      toast('Questo giocatore è già stato schierato. Scegli un altro calciatore.',true);render();return;
+    }
+    if(playerId)draft.slots[slot]=playerId;else delete draft.slots[slot];
+    draft.dirty=true;render();
+  }
+  async function saveFormation(){
+    if(!canManageFormation())throw new Error('Solo l’amministratore può salvare una formazione.');
+    await requireMatchAdmin();
+    if(!state.schemaReady||state.sheetIds.Formazioni===undefined)throw new Error('Esegui aggiornaDatabaseV128 in Apps Script.');
+    const draft=ensureFormationDraft();
+    const positions=FORMATION_MODULES[draft.module].map(p=>p[0]);
+    const selected=positions.map(slot=>draft.slots[slot]);
+    if(selected.some(id=>!id)||new Set(selected).size!==7)throw new Error('Assegna sette giocatori diversi prima di salvare.');
+    const valid=new Set(playersInSeason(state.seasonId).map(p=>p.id));
+    if(selected.some(id=>!valid.has(id)))throw new Error('Uno o più giocatori non appartengono alla stagione selezionata.');
+    const prev=savedFormation(state.seasonId);
+    const values=[state.seasonId,draft.module,JSON.stringify(Object.fromEntries(positions.map(k=>[k,draft.slots[k]]))),new Date().toISOString()];
+    const succeeded=await withBusy(()=>writeAtomic([{sheet:'Formazioni',...(prev?{row:prev._row}:{}),rows:[values]}]));
+    if(succeeded){state.formationDraft=null;render();}
+  }
+  function resetFormation(){state.formationDraft=null;render();}
+
   function renderSeasons() {
     const seasons=[...state.data.seasons].sort((a,b)=>String(b.start||b.name).localeCompare(String(a.start||a.name)));
     return intro('ALBO STAGIONALE','Archivio stagioni','Ogni stagione conserva statistiche e risultati separati.',`<button class="btn btn-primary only-editor" data-action="new-season">＋ Nuova stagione</button>`)+banner()+
@@ -590,17 +678,19 @@
   function renderSettings() {
     return intro('CONNESSIONE E DATI','Configurazione','Gestione del collegamento con il foglio Google e stato del progetto.')+banner()+
     `<div class="two-cards"><div class="panel"><div class="panel-heading"><h2 class="panel-title">🔐 Stato connessione</h2></div><div class="breakdown"><div><span>Versione applicazione</span><strong>${VERSION}</strong></div><div><span>Origine dati</span><strong>${state.source==='drive'?'Google Drive':'Demo locale'}</strong></div><div><span>Modalità</span><strong>${editor()?'Google OAuth attivo':'Sola consultazione'}</strong></div><div><span>Archivio</span><strong>${CFG.spreadsheetId?'Configurato':'Da configurare'}</strong></div></div><p class="notice">Le autorizzazioni di scrittura non sono affidate al sito GitHub: le controlla Google tramite i permessi del foglio.</p></div>
-      <div class="panel"><div class="panel-heading"><h2 class="panel-title">📂 Dove sono salvati i dati?</h2></div><p class="form-guide">Tutte le informazioni sono conservate in un unico Google Sheets nel tuo Drive, diviso in 11 schede.</p><div class="breakdown">${SHEETS.map(s=>`<div><span>${esc(s)}</span><strong>Google Sheets</strong></div>`).join('')}</div>${CFG.spreadsheetId?`<p><a target="_blank" rel="noopener noreferrer" href="https://docs.google.com/spreadsheets/d/${encodeURIComponent(CFG.spreadsheetId)}/edit">Apri archivio Google Sheets ↗</a></p>`:''}</div></div>
+      <div class="panel"><div class="panel-heading"><h2 class="panel-title">📂 Dove sono salvati i dati?</h2></div><p class="form-guide">Tutte le informazioni sono conservate in un unico Google Sheets nel tuo Drive, diviso in 12 schede.</p><div class="breakdown">${SHEETS.map(s=>`<div><span>${esc(s)}</span><strong>Google Sheets</strong></div>`).join('')}</div>${CFG.spreadsheetId?`<p><a target="_blank" rel="noopener noreferrer" href="https://docs.google.com/spreadsheets/d/${encodeURIComponent(CFG.spreadsheetId)}/edit">Apri archivio Google Sheets ↗</a></p>`:''}</div></div>
     <div class="panel mt-20"><div class="panel-heading"><h2 class="panel-title">🎨 Ruoli, stati e colori</h2></div><p class="form-guide">Personalizza ruoli e stati, compreso il colore di ciascuno. Il tipo Portiere resta un attributo dei ruoli. Le scelte sono memorizzate su Google Sheets e sono valide per tutti.</p><div class="intro-buttons"><button class="btn btn-secondary only-editor" data-action="manage-roles">Gestisci ruoli e colori</button><button class="btn btn-secondary only-editor" data-action="manage-states">Gestisci stati e colori</button></div><div class="catalog-overview">${availableRoles().map(x=>roleBadge(x.name)).join(' ')}${availableStates().map(x=>statusBadge(x.id)).join(' ')}</div></div>
     <div class="panel mt-20"><div class="panel-heading"><h2 class="panel-title">🚀 Messa online</h2></div><div class="two-cards"><div class="info-step"><h3>1. Aggiorna il database esistente</h3><p>Solo se parti da una versione precedente alla v1.11 esegui <strong>aggiornaDatabaseV111</strong> in Apps Script: aggiunge le colonne per il ruolo partita e per distinguere gol fatti/subiti, preservando i dati. Da versioni precedenti alla v1.9 occorre prima aggiornare lo schema AutogolFavore.</p></div><div class="info-step"><h3>2. Proteggi l'accesso amministrativo</h3><p>Mantieni gli ID già funzionanti in <strong>config.js</strong> e aggiungi la proprietà <strong>adminEmail</strong> con la tua email Google. La cancellazione delle partite sarà disponibile soltanto dopo l'identificazione dell'account amministratore. Non condividere i permessi Editor del Google Sheet con altri utenti.</p></div><div class="info-step"><h3>3. Aggiorna alla v1.23</h3><p>Per la v1.23, esegui <strong>aggiornaDatabaseV123</strong> una sola volta dopo un backup del foglio, poi sostituisci <strong>index.html, app.js e styles.css</strong>. Il nuovo flag esclude la distinta dai totali senza modificare il Pregresso.</p></div><div class="info-step"><h3>4. Campionato storico 2025/26</h3><p>Seleziona 2025/26 → Campionato e collega i widget ufficiali del Girone B. I vecchi widget del Girone A sono esclusi. Per importare classifica e calendario in-app usa i pulsanti di importazione. Solo se vuoi registrare i risultati anche nelle partite interne della squadra, usa l’importazione CSV; i dati individuali storici non vengono modificati dai widget.</p></div></div><p class="notice mt-20">Per tutte le istruzioni operative, vedere il file LEGGIMI.md incluso nel progetto.</p></div>`;
   }
   function render() {
     if(!state.data.seasons.some(s=>s.id===state.seasonId)) state.seasonId=defaultSeason()?.id||'';
+    if(state.view==='formation'&&!canManageFormation())state.view='league';
+    if(state.view==='settings'&&!editor())state.view='league';
     renderNav();
-    const content=({dashboard:renderDashboard,players:renderPlayers,matches:renderMatches,rankings:renderRankings,league:renderLeague,seasons:renderSeasons,settings:renderSettings}[state.view]||renderDashboard)();
+    const content=({dashboard:renderDashboard,players:renderPlayers,matches:renderMatches,rankings:renderRankings,league:renderLeague,seasons:renderSeasons,formation:renderFormation,settings:renderSettings}[state.view]||renderDashboard)();
     $('#main-content').innerHTML=content;
   }
-  function navigate(view) { state.view=view;render();window.scrollTo({top:0,behavior:'smooth'}); }
+  function navigate(view) { if(view==='formation'&&!canManageFormation())return;if(view==='settings'&&!editor())return;state.view=view;render();window.scrollTo({top:0,behavior:'smooth'}); }
   function closeModal() { $('#modal-root').replaceChildren();document.body.style.overflow=''; }
   function modal(title,body,footer='',wide=false) {
     $('#modal-root').innerHTML=`<div class="modal-backdrop" data-backdrop="true"><div class="modal ${wide?'wide':''}" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div class="modal-header"><h2 id="modal-title">${esc(title)}</h2><button class="modal-close" data-action="close-modal" aria-label="Chiudi finestra">×</button></div><div class="modal-body">${body}</div>${footer?`<div class="modal-footer">${footer}</div>`:''}</div></div>`;
@@ -824,7 +914,7 @@
     };
     const rows=[labels,...playerRows().map((p,i)=>[i+1,...fields.map(k=>k==='seasons'?seasonsPlayed(p.id):k==='role'?rolesText(p.role):k==='goals'?rosterGoalText(p):p[k])])];
     const csv='\ufeff'+rows.map(row=>row.map(escapeCSV).join(';')).join('\r\n');
-    const blob=new Blob([csv],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=el('a',{href:url,download:`expats-fc-${state.seasonId}-v1.22.csv`});
+    const blob=new Blob([csv],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=el('a',{href:url,download:`expats-fc-${state.seasonId}-v1.28.csv`});
     document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),2000);toast('Classifica esportata in CSV.');
   }
   // --- Google Drive: lettura pubblica via Google Visualization JSONP ---
@@ -870,16 +960,17 @@
     expected.push([8,0,['StagioneID','ImportID','Squadra','PG','V','N','P','GF','GS','Punti']]);
     expected.push([9,0,['StagioneID','ImportID','Giornata','Data','Casa','Trasferta','GolCasa','GolTrasferta']]);
     expected.push([10,0,['StagioneID','Tipo','URL','AggiornatoIl']]);
+    expected.push([11,0,['StagioneID','Modulo','GiocatoriJSON','AggiornatoIl']]);
     state.schemaReady=expected.every(([index,start,columns])=>columns.every((v,i)=>String(ranges[index]?.values?.[0]?.[start+i]||'').trim()===v));
-    if(!state.schemaReady)throw new Error('Il database richiede la migrazione v1.16: esegui aggiornaDatabaseV116 in Apps Script prima di modificare i dati.');
+    if(!state.schemaReady)throw new Error('Il database richiede la migrazione v1.28: esegui aggiornaDatabaseV128 in Apps Script.');
     return decodeSheets(ranges.map(x=>(x.values||[]).slice(1)));
   }
   async function loadPublic() {
-    const tables=await Promise.all(SHEETS.map((sheet,i)=>i<8?gvizSheet(sheet):gvizSheet(sheet).catch(()=>[])));
+    const tables=await Promise.all(SHEETS.map((sheet,i)=>sheet==='Formazioni'?Promise.resolve([]):i<8?gvizSheet(sheet):gvizSheet(sheet).catch(()=>[])));
     return decodeSheets(tables);
   }
   function decodeSheets(arrays) {
-    const [p,s,m,l,b,t,rr,ss,cc,cp,cw]=arrays;
+    const [p,s,m,l,b,t,rr,ss,cc,cp,cw,ff]=arrays;
     const trimmed=rows=>(rows||[]).filter(row=>row?.some(x=>String(x??'').trim()!==''));
     const str=x=>String(x??'').trim();
     const players=(p||[]).map((r,i)=>({id:str(r[0]),number:num(r[1]),firstName:str(r[2]),lastName:str(r[3]),status:str(r[4])||'ATTIVO',role:str(r[5]),notes:str(r[6]),_row:i+2})).filter(x=>x.id);
@@ -894,7 +985,8 @@
     const leagueStandings=(cc||[]).map((r,i)=>({seasonId:str(r[0]),batch:str(r[1]),team:str(r[2]),pg:positiveInt(r[3]),win:positiveInt(r[4]),draw:positiveInt(r[5]),loss:positiveInt(r[6]),gf:positiveInt(r[7]),ga:positiveInt(r[8]),pts:num(r[9]),_row:i+2})).filter(x=>x.seasonId&&x.team&&x.batch);
     const leagueFixtures=(cp||[]).map((r,i)=>({seasonId:str(r[0]),batch:str(r[1]),round:str(r[2]),date:padDate(r[3]),home:str(r[4]),away:str(r[5]),hg:r[6]===''||r[6]==null?null:positiveInt(r[6]),ag:r[7]===''||r[7]==null?null:positiveInt(r[7]),_row:i+2})).filter(x=>x.seasonId&&x.home&&x.away&&x.batch);
     const leagueWidgets=(cw||[]).map((r,i)=>({seasonId:str(r[0]),type:str(r[1]),url:str(r[2]),updatedAt:str(r[3]),_row:i+2})).filter(x=>x.seasonId&&LEAGUE_WIDGET_TYPES.includes(x.type));
-    return {players,seasons,matches,lineups,baseline,memberships,leagueStandings,leagueFixtures,leagueWidgets,roles:roles.length?roles:structuredClone(legacyRoles),states:states.length?states:structuredClone(legacyStates)};
+    const formations=(ff||[]).map((r,i)=>{let slots={};try{const obj=JSON.parse(str(r[2])||'{}');if(obj && !Array.isArray(obj) && typeof obj==='object')slots=Object.fromEntries(Object.entries(obj).filter(([key,val])=>/^(?:GK|A1|D[1-3]|M[1-3])$/.test(key)&&typeof val==='string'));}catch(_){/* record incompleto */}return {seasonId:str(r[0]),module:str(r[1]),slots,updatedAt:str(r[3]),_row:i+2};}).filter(x=>x.seasonId);
+    return {players,seasons,matches,lineups,baseline,memberships,leagueStandings,leagueFixtures,leagueWidgets,formations,roles:roles.length?roles:structuredClone(legacyRoles),states:states.length?states:structuredClone(legacyStates)};
   }
   async function refreshData() {
     if(!CFG.spreadsheetId) {state.source='demo';render();return;}
@@ -916,7 +1008,7 @@
       try{window.google?.accounts.oauth2.revoke(token,()=>{});}catch(_){}
       await refreshData();toast('Sessione Google disconnessa.');return;
     }
-    if(!CFG.googleClientId||!CFG.spreadsheetId){toast('Configura spreadsheetId e googleClientId nel file config.js.',true);navigate('settings');return;}
+    if(!CFG.googleClientId||!CFG.spreadsheetId){toast('Configura spreadsheetId e googleClientId nel file config.js.',true);return;}
     if(!window.google?.accounts?.oauth2){toast('Il servizio di accesso Google non è disponibile: verifica la connessione o il blocco popup.',true);return;}
     const client=google.accounts.oauth2.initTokenClient({client_id:CFG.googleClientId,scope:'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email',callback:async(response)=>{
       if(response.error||!response.access_token){toast('Accesso Google non riuscito.',true);return;}
@@ -942,10 +1034,10 @@
     return googleAPI(':batchUpdate',{method:'POST',body:JSON.stringify({requests})});
   }
   async function writeAtomic(ops) {
-    if(!state.schemaReady)throw new Error('Aggiorna lo schema Google Sheets alla v1.16 eseguendo aggiornaDatabaseV116.');
+    if(!state.schemaReady)throw new Error('Aggiorna lo schema Google Sheets alla v1.28 eseguendo aggiornaDatabaseV128.');
     const requests=ops.filter(op=>op.rows?.length).map(op=>{
       const sheetId=state.sheetIds[op.sheet];
-      if(sheetId===undefined)throw new Error('Scheda '+op.sheet+' mancante. Esegui aggiornaDatabaseV116 in Apps Script.');
+      if(sheetId===undefined)throw new Error('Scheda '+op.sheet+' mancante. Esegui aggiornaDatabaseV128 in Apps Script.');
       if(op.row) return {updateCells:{start:{sheetId,rowIndex:op.row-1,columnIndex:0},rows:op.rows.map(rowCells),fields:'userEnteredValue'}};
       return {appendCells:{sheetId,rows:op.rows.map(rowCells),fields:'userEnteredValue'}};
     });
@@ -1344,6 +1436,8 @@
     if(btn.dataset.season){state.seasonId=btn.dataset.season;navigate('dashboard');return;}
     const action=btn.dataset.action;
     if(action==='close-modal')closeModal();
+    else if(action==='save-formation')saveFormation().catch(e=>toast(safeError(e),true));
+    else if(action==='reset-formation')resetFormation();
     else if(action==='league-widgets')leagueWidgetsDialog();
     else if(action==='league-widgets-save')leagueWidgetsSave().catch(e=>toast(safeError(e),true));
     else if(action==='league-tab'){state.leagueTab=btn.dataset.tab==='calendario'?'calendario':'classifica';render();}
@@ -1392,6 +1486,8 @@
         if(field)field.hidden=!dualKitNeeded(roles,section.dataset.playerId,section.dataset.seasonId);
       }
     }
+    if(event.target.id==='formation-module'){changeFormationModule(event.target.value);return;}
+    if(event.target.dataset.formationSlot){changeFormationPlayer(event.target.dataset.formationSlot,event.target.value);return;}
     if(event.target.id==='confirm-match-deletion'){const button=$('#confirm-delete-match-btn');if(button)button.disabled=!event.target.checked;}
     if(event.target.id==='season-select'){state.seasonId=event.target.value;render();}
     else if(event.target.id==='roster-scope'){state.rosterScope=event.target.value;$('#players-tbody').innerHTML=playersTable();}
