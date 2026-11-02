@@ -816,7 +816,7 @@ button,input,select,textarea{font-family:inherit}
   }
 }
 
-/* v1.35 — Dashboard accessi (admin) e consenso esplicito visitatori. */
+/* v1.36 — Dashboard aggregati (admin), senza banner di consenso analytics. */
 .analytics-period{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
 .analytics-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:18px}
 .analytics-kpi{background:linear-gradient(145deg,#14263f,#112035);border:1px solid #304660;border-radius:13px;padding:17px;min-width:0}
@@ -829,9 +829,8 @@ button,input,select,textarea{font-family:inherit}
 .analytics-bar-track{height:9px;background:#25364c;border-radius:99px;overflow:hidden}
 .analytics-bar-track i{height:100%;background:linear-gradient(90deg,#be9243,#f0c76b);display:block;border-radius:99px}
 .analytics-table{min-width:660px}.analytics-table td{font-size:11px}
-.analytics-consent{position:fixed;bottom:15px;left:50%;transform:translateX(-50%);max-width:800px;width:calc(100% - 30px);z-index:120;background:#17283d;color:#eaf4ff;border:1px solid #3e6b69;border-radius:15px;padding:17px;display:flex;align-items:center;gap:18px;box-shadow:0 12px 50px #000b}
-.analytics-consent strong{font-weight:800;font-size:14px}.analytics-consent p{font-size:11px;line-height:1.55;color:#c6d9e8;margin:5px 0 0}
-.analytics-consent-actions{display:flex;gap:8px;flex-shrink:0}
 .analytics-privacy-link{background:none;border:0;padding:0;color:#82c9bb;font-size:inherit;text-decoration:underline;cursor:pointer}
 @media(max-width:900px){.analytics-panels{grid-template-columns:1fr}}
-@media(max-width:600px){.analytics-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.analytics-consent{display:block}.analytics-consent-actions{margin-top:12px}.analytics-consent-actions button{flex:1}}
+
+
+@media(max-width:600px){.analytics-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}

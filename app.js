@@ -1,4 +1,4 @@
-/* EXPATS F.C. TEAM MANAGER — v1.35
+/* EXPATS F.C. TEAM MANAGER — v1.36
  * Frontend statico GitHub Pages + Google Sheets API (edit via OAuth) + GViz JSONP (pubblico).
  * Il controllo delle modifiche dipende dai permessi Google Drive sul foglio.
  */
@@ -6,7 +6,7 @@
   'use strict';
   const CFG = window.EXPATS_CONFIG;
   const SHEETS = ['Giocatori','Stagioni','Partite','Distinte','Pregresso','Tesseramenti','Ruoli','Stati','CampionatoClassifica','CampionatoPartite','CampionatoWidget','Formazioni','FormazioniPartite','EventiGol','IdoneitaRosa'];
-  const VERSION='v1.35';
+  const VERSION='v1.36';
   const state = {
     data: structuredClone(window.EXPATS_DEMO),
     source: 'demo', view: 'league', seasonId: '', rosterScope: 'season',
@@ -821,37 +821,20 @@
       `<div class="season-grid">${seasons.map(s=>{const t=seasonTotals(s.id);return `<div class="season-card"><div class="eyebrow">STAGIONE</div><h3>${esc(s.name)}</h3><p>${s.start?localeDate(s.start):'Inizio da definire'} ${s.end?`— ${localeDate(s.end)}`:''}</p><div class="mini-summary"><div><strong>${t.matches}</strong><span>Partite</span></div><div><strong>${t.goals}</strong><span>Gol singoli</span></div><div><strong>${t.assists}</strong><span>Assist</span></div></div><div class="season-bottom mt-20"><span class="chip ${s.id===state.seasonId?'success':'neutral'}">${s.id===state.seasonId?'Selezionata':'Archiviata'}</span><div class="season-card-buttons"><button class="btn btn-secondary btn-small only-editor" data-action="edit-season" data-id="${esc(s.id)}">Modifica</button><button class="btn btn-secondary btn-small" data-season="${esc(s.id)}">Visualizza</button></div></div></div>`}).join('')}</div><p class="notice mt-20">Il numero di stagioni conta i tesseramenti e le partecipazioni documentate. Modifica un giocatore per scegliere le sue stagioni; maglia, ruolo e stato sono propri di ogni stagione, anche quando visualizzi anni precedenti.</p>`;
   }
 
-  /* ANALYTICS v1.35 — visite anonime, consenso esplicito, nessun IP o identificativo permanente. */
+  /* ANALYTICS v1.36 — sole statistiche aggregate, senza cookie/identificativi di tracciamento.
+   * Gli eventi transitano verso Apps Script, che incrementa un contatore orario,
+   * senza conservare una riga per visita o identificatori di singoli visitatori.
+   */
   const ANALYTICS_PAGES={dashboard:'Panoramica',players:'Rosa giocatori',matches:'Partite e risultati',
-    rankings:'Statistiche',league:'Campionato',seasons:'Storico stagioni',formation:'Formazione',
-    athletes:'Dati Atleti',settings:'Configurazione',analytics:'Statistiche accessi'};
-  const ANALYTICS_CHOICE_KEY='expats.analytics.choice.v135';
-  const ANALYTICS_SESSION_KEY='expats.analytics.session.v135';
+    rankings:'Statistiche',league:'Campionato',seasons:'Storico stagioni'};
+  const ANALYTICS_PUBLIC_PAGES=['dashboard','players','matches','rankings','league-classifica','league-risultati','seasons'];
   const analyticsEnabled=()=>/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(String(CFG.analyticsWebAppUrl||'').trim());
-  function analyticsChoice(){try{return localStorage.getItem(ANALYTICS_CHOICE_KEY)||'';}catch(_){return '';}}
-  function analyticsSetChoice(choice){
-    try{localStorage.setItem(ANALYTICS_CHOICE_KEY,choice);}catch(_){}
-    analyticsConsentRender();
-    if(choice==='yes')analyticsTrackPage();
-  }
-  function analyticsResetChoice(){
-    try{localStorage.removeItem(ANALYTICS_CHOICE_KEY);sessionStorage.removeItem(ANALYTICS_SESSION_KEY);}catch(_){}
-    analyticsConsentRender();
-  }
   function analyticsPrivacyDialog(){
-    modal('Privacy delle statistiche',`<p class="form-guide">Per migliorare l’app Expats F.C. registriamo, soltanto se lo consenti, la sezione consultata, la stagione visualizzata, data e ora, tipo di dispositivo e un codice casuale che dura per la sessione di questa scheda.</p><p class="form-guide">Non registriamo indirizzi IP, nomi, indirizzi email, posizione geografica o identificativi permanenti. I dati sono conservati in un foglio Google privato dell’amministratore, per massimo 90 giorni, e usati esclusivamente per le statistiche di utilizzo. Puoi rifiutare senza perdere funzionalità e cambiare scelta qui in ogni momento.</p><p class="form-guide">Contatto per le informazioni sul trattamento: ${esc(CFG.adminEmail||'amministratore Expats F.C.')}.</p>`,`<button class="btn btn-secondary" data-action="analytics-reject-close">Non consentire</button><button class="btn btn-primary" data-action="analytics-accept-close">Consenti</button>`);
-  }
-  function analyticsConsentRender(){
-    const root=$('#analytics-consent-root');if(!root)return;
-    if(!analyticsEnabled()||analyticsChoice()){root.replaceChildren();return;}
-    root.innerHTML=`<div class="analytics-consent" role="region" aria-label="Preferenze statistiche"><div><strong>Statistiche anonime di consultazione</strong><p>Possiamo registrare pagina visitata, data e ora, tipo di dispositivo e un codice temporaneo della sessione. Non raccogliamo IP, nomi o email. Puoi rifiutare e consultare comunque l’app.</p></div><div class="analytics-consent-actions"><button type="button" class="btn btn-secondary" data-action="analytics-reject">Rifiuta</button><button type="button" class="btn btn-primary" data-action="analytics-accept">Consenti</button></div></div>`;
-  }
-  function analyticsSession(){
-    try{
-      let key=sessionStorage.getItem(ANALYTICS_SESSION_KEY);
-      if(!key){key=typeof crypto!=='undefined'&&crypto.randomUUID?crypto.randomUUID():uid('visit');sessionStorage.setItem(ANALYTICS_SESSION_KEY,key);}
-      return key;
-    }catch(_){return uid('visit');}
+    modal('Privacy e statistiche',
+      `<p class="form-guide">Per conoscere quali sezioni dell’app Expats F.C. sono più utilizzate, contiamo le visualizzazioni in forma aggregata per giorno, ora, sezione, stagione e categoria di dispositivo (smartphone, tablet o computer).</p>`+
+      `<p class="form-guide">Non utilizziamo cookie o altri identificatori per queste statistiche, non creiamo profili di navigazione e non salviamo nel nostro archivio indirizzi IP, nomi, email, identificativi di sessione o elenchi di singole visite. Non misuriamo gli utenti unici. I conteggi sono conservati in un foglio Google privato dell’amministratore per un massimo di 90 giorni. Il servizio di infrastruttura può trattare dati tecnici necessari al trasporto delle richieste secondo le proprie condizioni.</p>`+
+      `<p class="form-guide">Il sistema è usato soltanto per migliorare questa applicazione. Per informazioni sul trattamento: ${esc(CFG.adminEmail||'amministratore Expats F.C.')}.</p>`,
+      `<button class="btn btn-secondary" data-action="close-modal">Chiudi</button>`);
   }
   function analyticsDevice(){
     const ua=navigator.userAgent||'';
@@ -859,12 +842,12 @@
   }
   let lastAnalyticsPage='',lastAnalyticsAt=0;
   function analyticsTrackPage(){
-    if(!analyticsEnabled()||analyticsChoice()!=='yes')return;
+    if(!analyticsEnabled())return;
     const page=state.view==='league'?(state.leagueTab==='classifica'?'league-classifica':'league-risultati'):state.view;
-    if(!ANALYTICS_PAGES[state.view])return;
+    if(!ANALYTICS_PUBLIC_PAGES.includes(page))return;
     const now=Date.now();if(page===lastAnalyticsPage&&now-lastAnalyticsAt<3000)return;
     lastAnalyticsPage=page;lastAnalyticsAt=now;
-    const payload=JSON.stringify({action:'page_view',page,session:analyticsSession(),device:analyticsDevice(),season:String(activeSeason()?.name||'').slice(0,25)});
+    const payload=JSON.stringify({action:'aggregate_view_v136',page,device:analyticsDevice(),season:String(activeSeason()?.name||'').slice(0,25)});
     try{
       const blob=new Blob([payload],{type:'text/plain;charset=UTF-8'});
       if(navigator.sendBeacon&&navigator.sendBeacon(CFG.analyticsWebAppUrl,blob))return;
@@ -873,21 +856,21 @@
   }
   async function loadAnalytics(){
     if(!canManageFormation())return;
-    if(!CFG.analyticsSpreadsheetId){state.analyticsError='Completa analyticsSpreadsheetId nel config.js dopo la migrazione v1.35.';state.analyticsRows=null;render();return;}
+    if(!CFG.analyticsSpreadsheetId){state.analyticsError='Completa analyticsSpreadsheetId nel config.js dopo la migrazione v1.36.';state.analyticsRows=null;render();return;}
     if(state.analyticsLoading)return;
     state.analyticsLoading=true;state.analyticsError='';render();
     try{
-      const res=await googleAPI(`/values/${encodeURIComponent("'Visite'!A:E")}?valueRenderOption=FORMATTED_VALUE`,{spreadsheetId:CFG.analyticsSpreadsheetId});
+      const res=await googleAPI(`/values/${encodeURIComponent("'Aggregati'!A:F")}?valueRenderOption=FORMATTED_VALUE`,{spreadsheetId:CFG.analyticsSpreadsheetId});
       const rows=res.values||[];
-      if((rows[0]||[]).slice(0,5).join('|')!=='Ora|Sezione|Stagione|Sessione|Dispositivo')throw new Error('Intestazioni Analytics non compatibili. Esegui aggiornaDatabaseV135().');
-      state.analyticsRows=rows.slice(1).filter(r=>r[0]&&r[1]).map(r=>({at:String(r[0]),page:String(r[1]),season:String(r[2]||''),session:String(r[3]||''),device:String(r[4]||'')}));
+      if((rows[0]||[]).slice(0,6).join('|')!=='Giorno|Ora|Sezione|Stagione|Dispositivo|Visualizzazioni')throw new Error('Archivio analytics non aggiornato. Esegui aggiornaDatabaseV136() e pubblica una nuova versione della Web App.');
+      state.analyticsRows=rows.slice(1).filter(r=>r[0]&&r[2]).map(r=>({day:String(r[0]),hour:String(r[1]||'').padStart(2,'0'),page:String(r[2]),season:String(r[3]||''),device:String(r[4]||''),count:Math.max(0,Number(r[5])||0)}));
     }catch(e){state.analyticsRows=null;state.analyticsError=safeError(e);}
     finally{state.analyticsLoading=false;render();}
   }
   function analyticsFilteredRows(){
     const cut=new Date();cut.setHours(0,0,0,0);cut.setDate(cut.getDate()-state.analyticsDays+1);
     const threshold=[cut.getFullYear(),String(cut.getMonth()+1).padStart(2,'0'),String(cut.getDate()).padStart(2,'0')].join('-');
-    return (state.analyticsRows||[]).filter(r=>r.at.slice(0,10)>=threshold);
+    return (state.analyticsRows||[]).filter(r=>r.day>=threshold);
   }
   function analyticsLabel(key){
     if(key==='league-classifica')return 'Campionato · Classifica';
@@ -899,32 +882,34 @@
   }
   function renderAnalytics(){
     if(!canManageFormation())return '';
-    let head=intro('AMMINISTRAZIONE','Statistiche accessi','Visite anonime e pagine consultate, con orari Europe/Rome e dati privati.',`<button type="button" class="btn btn-secondary" data-action="analytics-refresh">↻ Aggiorna</button><button type="button" class="btn btn-secondary" data-action="analytics-export">↓ Esporta CSV</button>`);
-    if(!analyticsEnabled()||!CFG.analyticsSpreadsheetId)return head+`<div class="panel"><h2 class="panel-title">Attivazione necessaria</h2><p class="form-guide">Esegui <strong>aggiornaDatabaseV135()</strong> in Apps Script, pubblica la Web App per ricevere visite anonime e inserisci nel tuo config.js <code>analyticsSpreadsheetId</code> e <code>analyticsWebAppUrl</code>. Nessun dato viene registrato prima della configurazione.</p></div>`;
+    let head=intro('AMMINISTRAZIONE','Statistiche accessi','Conteggi aggregati di consultazione senza identificare i visitatori.',`<button type="button" class="btn btn-secondary" data-action="analytics-refresh">↻ Aggiorna</button><button type="button" class="btn btn-secondary" data-action="analytics-export">↓ Esporta CSV</button>`);
+    if(!analyticsEnabled()||!CFG.analyticsSpreadsheetId)return head+`<div class="panel"><h2 class="panel-title">Attivazione necessaria</h2><p class="form-guide">Esegui <strong>aggiornaDatabaseV136()</strong> in Apps Script, aggiorna la distribuzione Web App alla nuova versione e conserva <code>analyticsSpreadsheetId</code> e <code>analyticsWebAppUrl</code> del config.js.</p></div>`;
     if(state.analyticsLoading)return head+`<div class="panel">Caricamento statistiche…</div>`;
-    if(state.analyticsError)return head+`<div class="panel"><p class="import-error">${esc(state.analyticsError)}</p><p class="form-guide">Il foglio Analytics deve essere privato e accessibile all’account Google amministratore.</p></div>`;
-    if(!state.analyticsRows)return head+`<div class="panel"><p class="form-guide">Premi <strong>Aggiorna</strong> per caricare gli accessi dal foglio privato.</p></div>`;
-    const rows=analyticsFilteredRows(), sessions=new Set(rows.map(r=>r.session).filter(Boolean));
+    if(state.analyticsError)return head+`<div class="panel"><p class="import-error">${esc(state.analyticsError)}</p><p class="form-guide">Il foglio Analytics deve essere privato e accessibile al tuo account Google amministratore.</p></div>`;
+    if(!state.analyticsRows)return head+`<div class="panel"><p class="form-guide">Premi <strong>Aggiorna</strong> per leggere i conteggi aggregati dal foglio privato.</p></div>`;
+    const rows=analyticsFilteredRows();
     const pageCount=new Map(),hourCount=new Map(),dayCount=new Map(),deviceCount=new Map();
+    let total=0;
     for(const r of rows){
-      for(const [map,k] of [[pageCount,r.page],[hourCount,r.at.slice(11,13)],[dayCount,r.at.slice(0,10)],[deviceCount,r.device]])map.set(k,(map.get(k)||0)+1);
+      total+=r.count;
+      for(const [map,k] of [[pageCount,r.page],[hourCount,r.hour],[dayCount,r.day],[deviceCount,r.device]])map.set(k,(map.get(k)||0)+r.count);
     }
     const bestPages=[...pageCount.entries()].sort((a,b)=>b[1]-a[1]);
     const bestHours=[...hourCount.entries()].sort((a,b)=>Number(a[0])-Number(b[0]));
     const devices=[...deviceCount.entries()].sort((a,b)=>b[1]-a[1]);
-    const cards=[['VISUALIZZAZIONI',rows.length],['SESSIONI',sessions.size],['PAGINE / SESSIONE',sessions.size?(rows.length/sessions.size).toFixed(1):'0'],['SEZIONI VISITATE',pageCount.size]];
+    const cards=[['VISUALIZZAZIONI',total],['MEDIA / GIORNO',(total/state.analyticsDays).toFixed(1).replace('.',',')],['GIORNI CON VISITE',dayCount.size],['SEZIONI VISITATE',pageCount.size]];
     head+=`<div class="analytics-period">${[7,30,90].map(n=>`<button class="btn ${state.analyticsDays===n?'btn-primary':'btn-secondary'} btn-small" data-action="analytics-days" data-days="${n}">${n} giorni</button>`).join('')}</div>`;
     head+=`<div class="analytics-kpis">${cards.map(([label,val])=>`<div class="analytics-kpi"><small>${label}</small><strong>${val}</strong></div>`).join('')}</div>`;
-    head+=`<div class="analytics-panels"><section class="panel"><div class="panel-heading"><h2 class="panel-title">Pagine più consultate</h2></div>${bestPages.length?bestPages.map(([k,n])=>analyticsBar(analyticsLabel(k),n,bestPages[0][1])).join(''):'<p class="form-guide">Nessuna visita nel periodo selezionato.</p>'}</section><section class="panel"><div class="panel-heading"><h2 class="panel-title">Fasce orarie</h2></div>${bestHours.length?bestHours.map(([hour,n])=>analyticsBar(`${hour}:00–${hour}:59`,n,Math.max(...hourCount.values()))).join(''):'<p class="form-guide">Nessuna visita.</p>'}</section></div>`;
+    head+=`<div class="analytics-panels"><section class="panel"><div class="panel-heading"><h2 class="panel-title">Pagine più consultate</h2></div>${bestPages.length?bestPages.map(([k,n])=>analyticsBar(analyticsLabel(k),n,bestPages[0][1])).join(''):'<p class="form-guide">Nessuna visualizzazione nel periodo selezionato.</p>'}</section><section class="panel"><div class="panel-heading"><h2 class="panel-title">Fasce orarie</h2></div>${bestHours.length?bestHours.map(([hour,n])=>analyticsBar(`${hour}:00–${hour}:59`,n,Math.max(...hourCount.values()))).join(''):'<p class="form-guide">Nessun dato.</p>'}</section></div>`;
     head+=`<div class="analytics-panels mt-20"><section class="panel"><div class="panel-heading"><h2 class="panel-title">Consultazioni per giorno</h2></div>${[...dayCount.entries()].sort((a,b)=>a[0].localeCompare(b[0])).map(([d,n])=>analyticsBar(d.split('-').reverse().join('/'),n,Math.max(...dayCount.values()))).join('')||'<p class="form-guide">Nessun dato.</p>'}</section><section class="panel"><div class="panel-heading"><h2 class="panel-title">Dispositivi</h2></div>${devices.map(([d,n])=>analyticsBar(d,n,devices[0][1])).join('')||'<p class="form-guide">Nessun dato.</p>'}</section></div>`;
-    head+=`<section class="panel mt-20"><div class="panel-heading"><h2 class="panel-title">Ultime consultazioni</h2><span class="panel-caption">Orario italiano · Massimo 60 righe</span></div><div class="table-shell"><table class="data-table analytics-table"><thead><tr><th>Data e ora</th><th>Sezione</th><th>Stagione</th><th>Dispositivo</th><th>Sessione (temporanea)</th></tr></thead><tbody>${[...rows].reverse().slice(0,60).map(r=>`<tr><td>${esc(r.at)}</td><td>${esc(analyticsLabel(r.page))}</td><td>${esc(r.season)}</td><td>${esc(r.device)}</td><td>${esc(r.session.slice(0,8))}…</td></tr>`).join('')||'<tr><td colspan="5">Nessuna consultazione nel periodo.</td></tr>'}</tbody></table></div><p class="notice">Solo visite per cui è stato dato il consenso. Niente indirizzi IP, nominativi o email; l’ID di sessione è temporaneo e non identifica una persona. I log vengono conservati per un massimo di 90 giorni. I dati possono essere incompleti se il browser blocca l’invio o se si esauriscono le quote gratuite Google.</p><button class="btn btn-secondary btn-small" data-action="analytics-reset">Modifica consenso statistiche su questo browser</button></section>`;
+    head+=`<section class="panel mt-20"><div class="panel-heading"><h2 class="panel-title">Conteggi per sezione e ora</h2><span class="panel-caption">Aggregati, non visite individuali</span></div><div class="table-shell"><table class="data-table analytics-table"><thead><tr><th>Giorno</th><th>Ora</th><th>Sezione</th><th>Stagione</th><th>Dispositivo</th><th>Visualizzazioni</th></tr></thead><tbody>${[...rows].sort((a,b)=>b.day.localeCompare(a.day)||b.hour.localeCompare(a.hour)).slice(0,100).map(r=>`<tr><td>${esc(r.day)}</td><td>${esc(r.hour)}:00</td><td>${esc(analyticsLabel(r.page))}</td><td>${esc(r.season)}</td><td>${esc(r.device)}</td><td>${r.count}</td></tr>`).join('')||'<tr><td colspan="6">Nessuna visualizzazione nel periodo.</td></tr>'}</tbody></table></div><p class="notice">Statistiche di utilizzo aggregate. Nessun cookie analytics, ID di sessione, IP, nominativo o email salvati nel foglio. Non sono conteggi di visitatori unici e possono essere incompleti o includere richieste automatiche. Conservazione massima: 90 giorni. <button type="button" class="analytics-privacy-link" data-action="analytics-privacy">Informativa</button>.</p></section>`;
     return head;
   }
   function analyticsExportCSV(){
     if(!canManageFormation()||!state.analyticsRows)return;
-    const csv=[['Ora','Sezione','Stagione','Sessione','Dispositivo'],...analyticsFilteredRows().map(r=>[r.at,analyticsLabel(r.page),r.season,r.session,r.device])].map(row=>row.map(v=>'"'+String(v).replaceAll('"','""')+'"').join(';')).join('\r\n');
+    const csv=[['Giorno','Ora','Sezione','Stagione','Dispositivo','Visualizzazioni'],...analyticsFilteredRows().map(r=>[r.day,r.hour,analyticsLabel(r.page),r.season,r.device,r.count])].map(row=>row.map(v=>'"'+String(v).replaceAll('"','""')+'"').join(';')).join('\r\n');
     const url=URL.createObjectURL(new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'}));
-    const a=document.createElement('a');a.href=url;a.download=`Expats-Accessi-${state.analyticsDays}giorni.csv`;document.body.append(a);a.click();a.remove();URL.revokeObjectURL(url);
+    const a=document.createElement('a');a.href=url;a.download=`Expats-Statistiche-Aggregate-${state.analyticsDays}giorni.csv`;document.body.append(a);a.click();a.remove();URL.revokeObjectURL(url);
   }
 
   function renderSettings() {
@@ -1835,12 +1820,7 @@
     if(btn.dataset.season){state.seasonId=btn.dataset.season;navigate('dashboard');return;}
     const action=btn.dataset.action;
     if(action==='close-modal')closeModal();
-    else if(action==='analytics-accept')analyticsSetChoice('yes');
-    else if(action==='analytics-reject')analyticsSetChoice('no');
-    else if(action==='analytics-reset')analyticsResetChoice();
     else if(action==='analytics-privacy')analyticsPrivacyDialog();
-    else if(action==='analytics-reject-close'){analyticsSetChoice('no');closeModal();}
-    else if(action==='analytics-accept-close'){analyticsSetChoice('yes');closeModal();}
     else if(action==='analytics-refresh')loadAnalytics();
     else if(action==='analytics-export')analyticsExportCSV();
     else if(action==='analytics-days'){state.analyticsDays=Number(btn.dataset.days)||30;render();}
@@ -1950,7 +1930,8 @@
   $('#auth-btn').addEventListener('click',auth);
   $('#refresh-btn').addEventListener('click',refreshData);
   render();
-  analyticsConsentRender();
+  // Pulisce eventuali preferenze/identificatori salvati dalla precedente v1.35.
+  try{localStorage.removeItem('expats.analytics.choice.v135');sessionStorage.removeItem('expats.analytics.session.v135');}catch(_){}
   analyticsTrackPage();
   if(CFG.spreadsheetId) refreshData();
 })();
