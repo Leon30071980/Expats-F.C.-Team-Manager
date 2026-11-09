@@ -1,17 +1,17 @@
-/* EXPATS F.C. TEAM MANAGER — v1.37
+/* EXPATS F.C. TEAM MANAGER — v1.38
  * Frontend statico GitHub Pages + Google Sheets API (edit via OAuth) + GViz JSONP (pubblico).
  * Il controllo delle modifiche dipende dai permessi Google Drive sul foglio.
  */
 (() => {
   'use strict';
   const CFG = window.EXPATS_CONFIG;
-  const SHEETS = ['Giocatori','Stagioni','Partite','Distinte','Pregresso','Tesseramenti','Ruoli','Stati','CampionatoClassifica','CampionatoPartite','CampionatoWidget','Formazioni','FormazioniPartite','EventiGol','IdoneitaRosa'];
-  const VERSION='v1.37';
+  const SHEETS = ['Giocatori','Stagioni','Partite','Distinte','Pregresso','Tesseramenti','Ruoli','Stati','CampionatoClassifica','CampionatoPartite','CampionatoWidget','Formazioni','FormazioniPartite','EventiGol','IdoneitaRosa','FormazioniArchivio'];
+  const VERSION='v1.38';
   const state = {
     data: structuredClone(window.EXPATS_DEMO),
     source: 'demo', view: 'league', seasonId: '', rosterScope: 'season',
     sort: {key:'number',dir:1}, search:'', filter:'TUTTI', leagueTab:'calendario',
-    token: '', accountEmail:'', sheetIds: {}, schemaReady:false, busy: false, inlineSaving:false, lastError: '', formationDraft:null, formationMatchId:'', formationPickerSlot:null, athleteRecords:[],athleteError:'',athleteReady:false, analyticsRows:null,analyticsError:'',analyticsDays:30,analyticsLoading:false
+    token: '', accountEmail:'', sheetIds: {}, schemaReady:false, busy: false, inlineSaving:false, lastError: '', formationDraft:null, formationMatchId:'', formationRecordId:'', formationNew:false, formationPickerSlot:null, athleteRecords:[],athleteError:'',athleteReady:false, analyticsRows:null,analyticsError:'',analyticsDays:30,analyticsLoading:false
   };
   const $ = (sel, root=document) => root.querySelector(sel);
   const el = (name, attrs={}) => Object.assign(document.createElement(name), attrs);
@@ -633,8 +633,9 @@
     const a=el('a',{href:url,download:`expats-fc-campionato-${kind}-modello.csv`});document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),2000);
   }
 
-  // Formazione: titolari (7) + panchina (5), base stagionale o associata ad una partita.
-  // Le riserve non sono slot fissi: coincidono con i convocati non titolari.
+  // v1.38: FormazioniArchivio permette più formazioni nominate per stagione/partita.
+  // I precedenti fogli Formazioni e FormazioniPartite rimangono intatti come backup.
+  // Le riserve sono tutti i convocati che non sono schierati tra i sette titolari.
   const LEGACY_BENCH_SLOTS=['B1','B2','B3','B4','B5'];
   const FORMATION_MODULES={
     '2-3-1':[
@@ -644,9 +645,35 @@
       ['A1','Punta',50,13],['M1','Ala sx',32,42],['M2','Ala dx',68,42],
       ['D1','Difensore sx',18,69],['D2','Difensore centrale',50,69],['D3','Difensore dx',82,69],['GK','Portiere',50,91]]
   };
-  const savedFormation=sid=>(state.data.formations||[]).find(f=>f.seasonId===sid);
-  const savedMatchFormation=id=>(state.data.matchFormations||[]).find(f=>f.matchId===id);
-  const formationChoice=()=>state.formationMatchId? savedMatchFormation(state.formationMatchId):savedFormation(state.seasonId);
+  const formationRecords=()=>[...(state.data.formationsArchive||[])]
+    .filter(f=>f.seasonId===state.seasonId && (f.matchId||'')===(state.formationMatchId||''))
+    .sort((a,b)=>String(b.updatedAt).localeCompare(String(a.updatedAt))||String(a.name).localeCompare(String(b.name),'it'));
+  const formationChoice=()=>{
+    if(state.formationNew)return null;
+    const forms=formationRecords();
+    return forms.find(f=>f.id===state.formationRecordId)||forms[0]||null;
+  };
+  function formationUnsavedGuard(){
+    const dirty=!!state.formationDraft?.dirty;
+    return !dirty || window.confirm('Ci sono modifiche non salvate alla formazione. Vuoi davvero abbandonarle?');
+  }
+  function switchFormation(id){
+    if(!formationUnsavedGuard())return false;
+    const exists=formationRecords().some(f=>f.id===id);
+    if(!exists)return false;
+    state.formationRecordId=id;
+    state.formationNew=false;
+    state.formationDraft=null;
+    render();return true;
+  }
+  function newFormation(){
+    if(!canManageFormation()||!formationUnsavedGuard())return;
+    state.formationRecordId='';
+    state.formationNew=true;
+    state.formationDraft=null;
+    render();
+    document.querySelector('#formation-name')?.focus();
+  }
   const eligibleForSlot=(player,slot)=>{
     const raw=rolesText(player.role).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
     const keeper=rolesOf(player.role).some(x=>/portier/i.test(x))||isKeeper(player);
@@ -657,9 +684,10 @@
     return true;
   };
   function ensureFormationDraft(){
-    const key=state.formationMatchId || '_stagione';
+    const saved=formationChoice();
+    const key=`${state.formationMatchId||'_stagione'}|${state.formationNew?'NUOVA':saved?.id||'NUOVA'}`;
     if(state.formationDraft?.seasonId===state.seasonId && state.formationDraft.key===key)return state.formationDraft;
-    const saved=formationChoice(),module=FORMATION_MODULES[saved?.module]?saved.module:'2-3-1';
+    const module=FORMATION_MODULES[saved?.module]?saved.module:'2-3-1';
     const positions=new Set(FORMATION_MODULES[module].map(p=>p[0]));
     const available=playersInSeason(state.seasonId),allowed=new Set(available.map(p=>p.id));
     const slots={},occupied=new Set();
@@ -668,18 +696,18 @@
         slots[position]=playerId;occupied.add(playerId);
       }
     }
-    // Compatibilità senza migrazione: leggi le cinque vecchie riserve come convocati.
+    // Il formato JSON storico contiene _convocati e, in versioni vecchie, B1-B5.
     const stored=saved?.called||saved?.slots?._convocati;
     const legacy=[...FORMATION_MODULES[module].map(p=>saved?.slots?.[p[0]]),
       ...LEGACY_BENCH_SLOTS.map(slot=>saved?.slots?.[slot])];
     const source=Array.isArray(stored)?[...stored,...legacy]:legacy;
     const called=[...new Set(source.filter(id=>allowed.has(id)))];
-    // Per nuove formazioni di partita proponi eventuali convocati della distinta.
     if(!saved && state.formationMatchId){
       const recorded=state.data.lineups.filter(l=>l.matchId===state.formationMatchId&&one(l.called)).map(l=>l.playerId);
       for(const id of recorded)if(allowed.has(id)&&!called.includes(id))called.push(id);
     }
-    state.formationDraft={seasonId:state.seasonId,key,module,slots,called,confirmed:!!saved&&called.length>=7,dirty:false};
+    state.formationDraft={seasonId:state.seasonId,key,module,slots,called,
+      name:saved?.name||'',confirmed:!!saved&&called.length>=7,dirty:false};
     return state.formationDraft;
   }
   function setFormationCalled(playerId,checked){
@@ -747,9 +775,19 @@
     const matchOptions=matches.map(m=>`<option value="${esc(m.id)}" ${current===m.id?'selected':''}>${esc(localeDate(m.date))} · ${m.venue==='T'?'@ ':'vs '}${esc(m.opponent)}</option>`).join('');
     const selectedMatch=matches.find(m=>m.id===current),saved=formationChoice();
     const filledPositions=positions.filter(p=>draft.slots[p[0]]).length;
-    const toolbar=`<section class="formation-toolbar panel"><div class="formation-controls"><label for="formation-module">Modulo</label><select id="formation-module" class="form-control"><option value="2-3-1" ${draft.module==='2-3-1'?'selected':''}>2-3-1</option><option value="3-2-1" ${draft.module==='3-2-1'?'selected':''}>3-2-1</option></select></div>
-      <div class="formation-controls formation-match-picker"><label for="formation-match">Associa alla partita</label><select id="formation-match" class="form-control"><option value="" ${!current?'selected':''}>Formazione base della stagione</option>${matchOptions}</select></div>
-      ${draft.confirmed?`<div class="formation-meta"><span class="chip neutral">${draft.called.length} convocati · ${filledPositions}/7 titolari · ${draft.called.length-filledPositions} riserve</span><span class="formation-save-status">${draft.dirty?'Modifiche non salvate':saved?`Salvata: ${esc(saved.updatedAt||'—')}`:'Da salvare'}</span></div><button type="button" class="btn btn-secondary" data-action="formation-edit-called">✓ Convocati</button><button type="button" class="btn btn-primary" data-action="save-formation" ${positions.every(p=>draft.slots[p[0]])?'':'disabled'}>Salva ${current?'formazione partita':'formazione stagionale'}</button>`:`<span class="formation-step-label">FASE 1 · CONVOCATI</span>`}</section>`;
+    const availableFormations=formationRecords();
+    const chosenId=saved?.id||'';
+    const formationOptions=availableFormations.map(f=>`<option value="${esc(f.id)}" ${chosenId===f.id?'selected':''}>${esc(f.name)}</option>`).join('');
+    const newLabel=state.formationNew||!saved;
+    const toolbar=`<section class="formation-toolbar panel formation-toolbar-v138">
+      <div class="formation-controls"><label for="formation-module">Modulo</label><select id="formation-module" class="form-control"><option value="2-3-1" ${draft.module==='2-3-1'?'selected':''}>2-3-1</option><option value="3-2-1" ${draft.module==='3-2-1'?'selected':''}>3-2-1</option></select></div>
+      <div class="formation-controls formation-match-picker"><label for="formation-match">Associa alla partita</label><select id="formation-match" class="form-control"><option value="" ${!current?'selected':''}>Formazioni della stagione</option>${matchOptions}</select></div>
+      <div class="formation-archive-bar">
+        <div class="formation-controls formation-archive-picker"><label for="formation-record">Formazioni salvate (${availableFormations.length})</label><select id="formation-record" class="form-control" ${!availableFormations.length?'disabled':''}><option value="" ${newLabel?'selected':''}>${availableFormations.length?'Nuova formazione non salvata':'Nessuna formazione salvata'}</option>${formationOptions}</select></div>
+        <button type="button" class="btn btn-secondary formation-new-button" data-action="formation-new">＋ Nuova formazione</button>
+        <div class="formation-controls formation-name-wrap"><label for="formation-name">Nome formazione</label><input id="formation-name" type="text" class="form-control" maxlength="80" autocomplete="off" placeholder="Es. Titolare, Offensiva, Difensiva" value="${esc(draft.name)}"></div>
+      </div>
+      ${draft.confirmed?`<div class="formation-meta"><span class="chip neutral">${draft.called.length} convocati · ${filledPositions}/7 titolari · ${draft.called.length-filledPositions} riserve</span><span class="formation-save-status">${draft.dirty?'Modifiche non salvate':saved?`Salvata: ${esc(saved.updatedAt||'—')}`:'Nuova formazione'}</span></div><button type="button" class="btn btn-secondary" data-action="formation-edit-called">✓ Convocati</button><button type="button" class="btn btn-primary" data-action="save-formation" ${positions.every(p=>draft.slots[p[0]])?'':'disabled'}>${newLabel?'Salva nuova formazione':'Salva modifiche'}</button>`:`<span class="formation-step-label">FASE 1 · CONVOCATI</span>`}</section>`;
     const heading=intro('AREA TECNICA · SOLO AMMINISTRATORE','Formazione',`Calcio a 7 · ${activeSeason().name}`)+banner()+toolbar+
       (selectedMatch?`<p class="formation-linked-match">Formazione abbinata a <strong>${esc(fixture(selectedMatch).home)} vs ${esc(fixture(selectedMatch).away)}</strong> · ${localeDate(selectedMatch.date)}</p>`:'');
     if(!draft.confirmed)return heading+formationCalledScreen(draft);
@@ -788,30 +826,32 @@
   async function saveFormation(){
     if(!canManageFormation())throw new Error('Solo l’amministratore può salvare la formazione.');
     await requireMatchAdmin();
-    if(!state.schemaReady)throw new Error('Esegui prima le migrazioni del database fino alla v1.30.');
+    if(!state.schemaReady)throw new Error('Esegui aggiornaDatabaseV138() prima di salvare più formazioni.');
     const draft=ensureFormationDraft(),positions=FORMATION_MODULES[draft.module].map(p=>p[0]);
+    const nameValue=String(document.querySelector('#formation-name')?.value??draft.name).trim().replace(/\s+/g,' ');
+    if(!nameValue||nameValue.length>80)throw new Error('Inserisci un nome per la formazione (massimo 80 caratteri).');
     if(!draft.confirmed||draft.called.length<7)throw new Error('Conferma almeno sette convocati prima di salvare.');
     const starters=positions.map(k=>draft.slots[k]);
     if(starters.some(id=>!id)||new Set(starters).size!==7)throw new Error('Assegna sette titolari diversi.');
     const selected=new Set(draft.called),valid=new Set(playersInSeason(state.seasonId).map(p=>p.id));
     if(selected.size!==draft.called.length||[...selected].some(id=>!valid.has(id))||starters.some(id=>!selected.has(id)))
       throw new Error('Controlla convocati, titolari e duplicati.');
+    if(state.formationMatchId&&!state.data.matches.some(m=>m.id===state.formationMatchId&&m.seasonId===state.seasonId))
+      throw new Error('La partita associata non è presente nella stagione selezionata.');
+    const prev=formationChoice();
+    if(formationRecords().some(f=>f.id!==prev?.id&&f.name.toLocaleLowerCase('it')===nameValue.toLocaleLowerCase('it')))
+      throw new Error('Esiste già una formazione con questo nome nella stagione/partita selezionata.');
     const now=new Date().toISOString();
-    // Nessuna nuova colonna: i convocati sono salvati nel JSON della formazione.
     const slots=Object.fromEntries(positions.map(k=>[k,draft.slots[k]]));
     slots._convocati=[...draft.called];
-    let sheet,prev,values;
-    if(state.formationMatchId){
-      const m=state.data.matches.find(m=>m.id===state.formationMatchId&&m.seasonId===state.seasonId);
-      if(!m)throw new Error('La partita associata non è presente nella stagione selezionata.');
-      sheet='FormazioniPartite';prev=savedMatchFormation(m.id);
-      values=[m.id,state.seasonId,draft.module,JSON.stringify(slots),now];
-    }else{
-      sheet='Formazioni';prev=savedFormation(state.seasonId);
-      values=[state.seasonId,draft.module,JSON.stringify(slots),now];
+    const id=prev?.id||uid('form');
+    const values=[id,state.seasonId,state.formationMatchId||'',nameValue,draft.module,JSON.stringify(slots),now];
+    // Aggiorna soltanto la formazione selezionata; per Nuova formazione crea sempre una riga con ID nuovo.
+    const success=await withBusy(()=>writeAtomic([{sheet:'FormazioniArchivio',...(prev?{row:prev._row}:{}),rows:[values]}]));
+    if(success){
+      state.formationRecordId=id;state.formationNew=false;state.formationDraft=null;
+      render();toast('Formazione “'+nameValue+'” salvata, senza sovrascrivere le altre.');
     }
-    const success=await withBusy(()=>writeAtomic([{sheet,...(prev?{row:prev._row}:{}),rows:[values]}]));
-    if(success){state.formationDraft=null;render();toast('Formazione e convocati salvati su Google Sheets.');}
   }
   function resetFormation(){state.formationDraft=null;render();}
 
@@ -1124,6 +1164,9 @@
       const rowDelete=(sheetId,row)=>({deleteDimension:{range:{sheetId,dimension:'ROWS',startIndex:row-1,endIndex:row}}});
       const requests=[...lines].sort((a,b)=>b._row-a._row).map(l=>rowDelete(lineupSheet,l._row));
       if(linked)requests.push(rowDelete(state.sheetIds.FormazioniPartite,linked._row));
+      // Cancella tutte le formazioni archiviate collegate alla partita, non quelle stagionali.
+      for(const f of (fresh.formationsArchive||[]).filter(f=>f.matchId===matchId).sort((a,b)=>b._row-a._row))
+        requests.push(rowDelete(state.sheetIds.FormazioniArchivio,f._row));
       for(const g of goalRows.sort((a,b)=>b._row-a._row))requests.push(rowDelete(state.sheetIds.EventiGol,g._row));
       requests.push(rowDelete(matchSheet,match._row));
       await googleAPI(':batchUpdate',{method:'POST',body:JSON.stringify({requests})});
@@ -1131,9 +1174,10 @@
       state.data.matches=state.data.matches.filter(m=>m.id!==matchId);
       state.data.lineups=state.data.lineups.filter(l=>l.matchId!==matchId);
       state.data.matchFormations=(state.data.matchFormations||[]).filter(f=>f.matchId!==matchId);
+      state.data.formationsArchive=(state.data.formationsArchive||[]).filter(f=>f.matchId!==matchId);
       state.data.goalEvents=(state.data.goalEvents||[]).filter(g=>g.matchId!==matchId);
     });
-    if(saved){if(state.formationMatchId===matchId){state.formationMatchId='';state.formationDraft=null;}state.seasonId=old.seasonId;navigate('matches');toast('Partita e relativa distinta eliminate. Statistiche aggiornate.');}
+    if(saved){if(state.formationMatchId===matchId){state.formationMatchId='';state.formationRecordId='';state.formationNew=false;state.formationDraft=null;}state.seasonId=old.seasonId;navigate('matches');toast('Partita e relativa distinta eliminate. Statistiche aggiornate.');}
   }
   function editMatchForm(matchId) { matchForm(matchId); }
   function baselineForm(playerId) {
@@ -1317,16 +1361,17 @@
     expected.push([12,0,['PartitaID','StagioneID','Modulo','GiocatoriJSON','AggiornatoIl']]);
     expected.push([13,0,['ID','PartitaID','Ordine','MarcatoreID','AssistID','Tipo']]);
     expected.push([14,0,['StagioneID','GiocatoreID','StatoAutomatico','AggiornatoIl']]);
+    expected.push([15,0,['ID','StagioneID','PartitaID','Nome','Modulo','GiocatoriJSON','AggiornatoIl']]);
     state.schemaReady=expected.every(([index,start,columns])=>columns.every((v,i)=>String(ranges[index]?.values?.[0]?.[start+i]||'').trim()===v));
-    if(!state.schemaReady)throw new Error('Il database richiede la migrazione v1.33: esegui aggiornaDatabaseV133 in Apps Script.');
+    if(!state.schemaReady)throw new Error('Il database richiede la migrazione v1.38: esegui aggiornaDatabaseV138 in Apps Script.');
     return decodeSheets(ranges.map(x=>(x.values||[]).slice(1)));
   }
   async function loadPublic() {
-    const tables=await Promise.all(SHEETS.map((sheet,i)=>(sheet==='Formazioni'||sheet==='FormazioniPartite')?Promise.resolve([]):i<8?gvizSheet(sheet):gvizSheet(sheet).catch(()=>[])));
+    const tables=await Promise.all(SHEETS.map((sheet,i)=>(sheet==='Formazioni'||sheet==='FormazioniPartite'||sheet==='FormazioniArchivio')?Promise.resolve([]):i<8?gvizSheet(sheet):gvizSheet(sheet).catch(()=>[])));
     return decodeSheets(tables);
   }
   function decodeSheets(arrays) {
-    const [p,s,m,l,b,t,rr,ss,cc,cp,cw,ff,fm,eg,ee]=arrays;
+    const [p,s,m,l,b,t,rr,ss,cc,cp,cw,ff,fm,eg,ee,fa]=arrays;
     const trimmed=rows=>(rows||[]).filter(row=>row?.some(x=>String(x??'').trim()!==''));
     const str=x=>String(x??'').trim();
     const players=(p||[]).map((r,i)=>({id:str(r[0]),number:num(r[1]),firstName:str(r[2]),lastName:str(r[3]),status:str(r[4])||'ATTIVO',role:str(r[5]),notes:str(r[6]),_row:i+2})).filter(x=>x.id);
@@ -1343,9 +1388,21 @@
     const leagueWidgets=(cw||[]).map((r,i)=>({seasonId:str(r[0]),type:str(r[1]),url:str(r[2]),updatedAt:str(r[3]),_row:i+2})).filter(x=>x.seasonId&&LEAGUE_WIDGET_TYPES.includes(x.type));
     const formations=(ff||[]).map((r,i)=>{let slots={};try{const obj=JSON.parse(str(r[2])||'{}');if(obj && !Array.isArray(obj) && typeof obj==='object')slots=Object.fromEntries(Object.entries(obj).filter(([key,val])=>/^(?:GK|A1|D[1-3]|M[1-3]|B[1-5])$/.test(key)&&typeof val==='string'));if(Array.isArray(obj._convocati))slots._convocati=[...new Set(obj._convocati.filter(id=>typeof id==='string'))];}catch(_){/* record incompleto */}return {seasonId:str(r[0]),module:str(r[1]),slots,updatedAt:str(r[3]),_row:i+2};}).filter(x=>x.seasonId);
     const matchFormations=(fm||[]).map((r,i)=>{let slots={};try{const obj=JSON.parse(str(r[3])||'{}');if(obj&&typeof obj==='object'&&!Array.isArray(obj))slots=Object.fromEntries(Object.entries(obj).filter(([k,v])=>/^(?:GK|A1|D[1-3]|M[1-3]|B[1-5])$/.test(k)&&typeof v==='string'));if(Array.isArray(obj._convocati))slots._convocati=[...new Set(obj._convocati.filter(id=>typeof id==='string'))];}catch(_){}return {matchId:str(r[0]),seasonId:str(r[1]),module:str(r[2]),slots,updatedAt:str(r[4]),_row:i+2};}).filter(x=>x.matchId);
+    // Formazioni v1.38: record separati con ID e nome, inclusi i legacy migrati.
+    const formationsArchive=(fa||[]).map((r,i)=>{
+      let slots={};
+      try{
+        const obj=JSON.parse(str(r[5])||'{}');
+        if(obj&&typeof obj==='object'&&!Array.isArray(obj)){
+          slots=Object.fromEntries(Object.entries(obj).filter(([k,v])=>/^(?:GK|A1|D[1-3]|M[1-3]|B[1-5])$/.test(k)&&typeof v==='string'));
+          if(Array.isArray(obj._convocati))slots._convocati=[...new Set(obj._convocati.filter(id=>typeof id==='string'))];
+        }
+      }catch(_){/* Righe storiche malformate non interrompono la lettura */}
+      return {id:str(r[0]),seasonId:str(r[1]),matchId:str(r[2]),name:str(r[3])||'Formazione senza nome',module:str(r[4]),slots,updatedAt:str(r[6]),_row:i+2};
+    }).filter(x=>x.id&&x.seasonId);
     const goalEvents=(eg||[]).map((r,i)=>({id:str(r[0]),matchId:str(r[1]),ordinal:positiveInt(r[2]),scorerId:str(r[3]),assistId:str(r[4]),type:str(r[5])||'GOL',_row:i+2})).filter(x=>x.id&&x.matchId).sort((a,b)=>a.ordinal-b.ordinal);
     const eligibility=(ee||[]).map((r,i)=>({seasonId:str(r[0]),playerId:str(r[1]),status:str(r[2]),updatedAt:str(r[3]),_row:i+2})).filter(r=>r.seasonId&&r.playerId);
-    return {players,seasons,matches,lineups,goalEvents,eligibility,baseline,memberships,leagueStandings,leagueFixtures,leagueWidgets,formations,matchFormations,roles:roles.length?roles:structuredClone(legacyRoles),states:states.length?states:structuredClone(legacyStates)};
+    return {players,seasons,matches,lineups,goalEvents,eligibility,baseline,memberships,leagueStandings,leagueFixtures,leagueWidgets,formations,matchFormations,formationsArchive,roles:roles.length?roles:structuredClone(legacyRoles),states:states.length?states:structuredClone(legacyStates)};
   }
   async function refreshData() {
     if(!CFG.spreadsheetId) {state.source='demo';render();return;}
@@ -1366,7 +1423,7 @@
   }
   async function auth() {
     if(editor()) {
-      const token=state.token;state.token='';state.accountEmail='';state.sheetIds={};state.schemaReady=false;state.analyticsRows=null;state.analyticsError='';
+      const token=state.token;state.token='';state.accountEmail='';state.sheetIds={};state.schemaReady=false;state.analyticsRows=null;state.analyticsError='';state.formationDraft=null;state.formationRecordId='';state.formationNew=false;
       try{window.google?.accounts.oauth2.revoke(token,()=>{});}catch(_){}
       await refreshData();toast('Sessione Google disconnessa.');return;
     }
@@ -1396,7 +1453,7 @@
     return googleAPI(':batchUpdate',{method:'POST',body:JSON.stringify({requests})});
   }
   async function writeAtomic(ops) {
-    if(!state.schemaReady)throw new Error('Aggiorna lo schema Google Sheets alla v1.33 eseguendo aggiornaDatabaseV133.');
+    if(!state.schemaReady)throw new Error('Aggiorna lo schema Google Sheets alla v1.38 eseguendo aggiornaDatabaseV138.');
     const requests=ops.filter(op=>op.rows?.length).map(op=>{
       const sheetId=state.sheetIds[op.sheet];
       if(sheetId===undefined)throw new Error('Scheda '+op.sheet+' mancante. Esegui aggiornaDatabaseV130 in Apps Script.');
@@ -1824,6 +1881,7 @@
     else if(action==='analytics-refresh')loadAnalytics();
     else if(action==='analytics-export')analyticsExportCSV();
     else if(action==='analytics-days'){state.analyticsDays=Number(btn.dataset.days)||30;render();}
+    else if(action==='formation-new')newFormation();
     else if(action==='formation-confirm-called')confirmFormationCalled();
     else if(action==='formation-edit-called'){ensureFormationDraft().confirmed=false;render();}
     else if(action==='formation-called-all')formationCalledAll(true);
@@ -1834,7 +1892,7 @@
     else if(action==='save-athlete')saveAthlete(btn.dataset.id).catch(e=>toast(safeError(e),true));
     else if(action==='save-formation')saveFormation().catch(e=>toast(safeError(e),true));
     else if(action==='reset-formation')resetFormation();
-    else if(action==='match-formation'){const match=state.data.matches.find(m=>m.id===btn.dataset.id);if(match&&canManageFormation()){closeModal();state.seasonId=match.seasonId;state.formationMatchId=match.id;state.formationDraft=null;navigate('formation');}}
+    else if(action==='match-formation'){const match=state.data.matches.find(m=>m.id===btn.dataset.id);if(match&&canManageFormation()){closeModal();state.seasonId=match.seasonId;state.formationMatchId=match.id;state.formationRecordId='';state.formationNew=false;state.formationDraft=null;navigate('formation');}}
     else if(action==='league-widgets')leagueWidgetsDialog();
     else if(action==='league-widgets-save')leagueWidgetsSave().catch(e=>toast(safeError(e),true));
     else if(action==='league-tab'){state.leagueTab=btn.dataset.tab==='calendario'?'calendario':'classifica';render();analyticsTrackPage();}
@@ -1887,10 +1945,11 @@
     if(event.target.matches('[data-athlete-csi]')){const label=event.target.closest('.athlete-flag')?.querySelector('span');if(label)label.textContent=event.target.checked?'Sì':'No';return;}
     if(event.target.dataset.formationCalled){setFormationCalled(event.target.dataset.formationCalled,event.target.checked);return;}
     if(event.target.id==='formation-module'){changeFormationModule(event.target.value);return;}
-    if(event.target.id==='formation-match'){state.formationMatchId=event.target.value;state.formationDraft=null;render();return;}
+    if(event.target.id==='formation-match'){if(!formationUnsavedGuard()){render();return;}state.formationMatchId=event.target.value;state.formationRecordId='';state.formationNew=false;state.formationDraft=null;render();return;}
+    if(event.target.id==='formation-record'){if(event.target.value){if(!switchFormation(event.target.value))render();}else newFormation();return;}
     if(event.target.dataset.formationSlot){changeFormationPlayer(event.target.dataset.formationSlot,event.target.value);return;}
     if(event.target.id==='confirm-match-deletion'){const button=$('#confirm-delete-match-btn');if(button)button.disabled=!event.target.checked;}
-    if(event.target.id==='season-select'){state.seasonId=event.target.value;state.formationMatchId='';state.formationDraft=null;render();analyticsTrackPage();}
+    if(event.target.id==='season-select'){if(state.view==='formation'&&!formationUnsavedGuard()){render();return;}state.seasonId=event.target.value;state.formationMatchId='';state.formationRecordId='';state.formationNew=false;state.formationDraft=null;render();analyticsTrackPage();}
     else if(event.target.id==='roster-scope'){state.rosterScope=event.target.value;$('#players-tbody').innerHTML=playersTable();}
     else if(event.target.id==='league-csv-file'){const file=event.target.files?.[0];if(file)file.text().then(text=>{const input=$('#league-csv-paste');if(input){input.value=text;state.leagueImport=null;$('#league-import-save').disabled=true;$('#league-import-preview').replaceChildren();}}).catch(e=>toast(safeError(e),true));}
     else if(event.target.id==='csv-file'){const file=event.target.files?.[0];if(file){file.text().then(text=>{const target=$('#csv-paste');if(target){target.value=text;state.importPreview=null;$('#execute-import').disabled=true;$('#import-preview').replaceChildren();}}).catch(e=>toast(safeError(e),true));}}
@@ -1901,6 +1960,7 @@
     else if(event.target.dataset.line){rosterToggle(event.target);}
   });
   document.addEventListener('input',event=>{
+    if(event.target.id==='formation-name'){const draft=ensureFormationDraft();draft.name=event.target.value;draft.dirty=true;const status=document.querySelector('.formation-save-status');if(status)status.textContent='Modifiche non salvate';return;}
     if(event.target.matches('#match-form [data-keeper-allocation]')){
       const form=$('#match-form');
       const row=[...form.querySelectorAll('.roster-entry[data-keeper="1"]')]

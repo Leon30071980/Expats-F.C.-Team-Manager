@@ -834,3 +834,20 @@ button,input,select,textarea{font-family:inherit}
 
 
 @media(max-width:600px){.analytics-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+
+/* v1.38 — Archivio formazioni nominate, preservando campo/panchina v1.37 */
+.formation-toolbar-v138{align-items:end;justify-content:flex-start}
+.formation-archive-bar{display:flex;align-items:end;flex-wrap:wrap;gap:12px;flex:1 1 100%;padding:12px 14px;background:rgba(13,35,51,.62);border:1px solid #34566a;border-radius:12px}
+.formation-archive-bar .formation-controls{display:flex;flex-direction:column;align-items:stretch;gap:6px;min-width:0}
+.formation-archive-picker{flex:1 1 210px}
+.formation-name-wrap{flex:2 1 270px}
+.formation-archive-bar .form-control{width:100%;max-width:none;min-width:0}
+.formation-archive-bar .formation-new-button{flex:0 0 auto;min-height:40px;white-space:nowrap}
+.formation-archive-bar label{font-size:12px;color:#c7d5e6;font-weight:800}
+.formation-archive-bar .formation-new-button:hover{border-color:#d4aa57;color:#f4dba4}
+@media(max-width:640px){
+ .formation-archive-bar{gap:10px;padding:10px}
+ .formation-archive-picker,.formation-name-wrap{flex:1 1 100%}
+ .formation-archive-bar .formation-new-button{flex:1 1 100%}
+}
