@@ -1,4 +1,4 @@
-/* EXPATS F.C. TEAM MANAGER — v1.38
+/* EXPATS F.C. TEAM MANAGER — v1.39
  * Frontend statico GitHub Pages + Google Sheets API (edit via OAuth) + GViz JSONP (pubblico).
  * Il controllo delle modifiche dipende dai permessi Google Drive sul foglio.
  */
@@ -6,7 +6,7 @@
   'use strict';
   const CFG = window.EXPATS_CONFIG;
   const SHEETS = ['Giocatori','Stagioni','Partite','Distinte','Pregresso','Tesseramenti','Ruoli','Stati','CampionatoClassifica','CampionatoPartite','CampionatoWidget','Formazioni','FormazioniPartite','EventiGol','IdoneitaRosa','FormazioniArchivio'];
-  const VERSION='v1.38';
+  const VERSION='v1.39';
   const state = {
     data: structuredClone(window.EXPATS_DEMO),
     source: 'demo', view: 'league', seasonId: '', rosterScope: 'season',
@@ -724,7 +724,7 @@
   }
   function formationCalledAll(selectAll){
     const draft=ensureFormationDraft();
-    draft.called=selectAll?playersInSeason(state.seasonId).map(p=>p.id):[];
+    draft.called=selectAll?playersInSeason(state.seasonId).filter(p=>!isUnavailable(p)).map(p=>p.id):[];
     draft.dirty=true;render();
   }
   function confirmFormationCalled(){
@@ -760,7 +760,7 @@
     const checks=players.map(p=>`<label class="formation-call-row ${isUnavailable(p)?'is-unavailable':''}">
       <input type="checkbox" data-formation-called="${esc(p.id)}" ${draft.called.includes(p.id)?'checked':''}/>
       <span class="formation-call-shirt">${jersey(p.number||'–',false,isKeeper(p))}</span>
-      <span class="formation-call-info"><strong>${esc(name(p))}</strong><small>${esc(rolesText(p.role))} · ${esc(statusText(p.status))}</small></span>
+      <span class="formation-call-info"><strong>${esc(name(p))}</strong><small>${esc(rolesText(p.role))} · ${esc(statusText(effectiveStatus(p)))}</small></span>
     </label>`).join('');
     return `<section class="panel formation-call-panel"><div class="formation-call-heading"><div><span class="formation-step-label">FASE 1 DI 2</span><h2>Seleziona i convocati</h2><p>Scegli chi è disponibile per questa formazione. Dopo la conferma assegnerai sette titolari: tutti gli altri convocati saranno automaticamente in panchina.</p></div><div class="formation-call-total"><strong id="formation-called-count">${draft.called.length}</strong><span>Convocati</span></div></div>
       <div class="formation-call-tools"><button type="button" class="btn btn-secondary btn-small" data-action="formation-called-all">Seleziona tutti</button><button type="button" class="btn btn-secondary btn-small" data-action="formation-called-clear">Deseleziona tutti</button></div>
