@@ -851,3 +851,26 @@ button,input,select,textarea{font-family:inherit}
  .formation-archive-picker,.formation-name-wrap{flex:1 1 100%}
  .formation-archive-bar .formation-new-button{flex:1 1 100%}
 }
+
+/* v1.40 — Contabilità privata società e quote atleti. */
+.finance-kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:18px 0}
+.finance-kpi{background:linear-gradient(140deg,#1c2d46,#142238);border:1px solid #344b62;border-radius:12px;min-width:0;padding:16px}
+.finance-kpi small{display:block;color:#a6bdd4;font-size:11px;font-weight:800;letter-spacing:.06em}
+.finance-kpi strong{display:block;color:#f4f7ff;font-family:'Exo 2',sans-serif;font-size:clamp(18px,2vw,27px);font-variant-numeric:tabular-nums;margin-top:7px;overflow-wrap:anywhere}
+.finance-kpi .finance-negative{color:#f29b9f}
+.finance-toolbar{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0}
+.finance-table{min-width:870px}
+.finance-table td{font-size:12px;vertical-align:middle;padding:10px}
+.finance-table td strong,.finance-table td small{display:block}
+.finance-table td small{color:#9fb7cd;margin-top:4px;font-size:10px}
+.finance-actions{display:flex;gap:6px;flex-wrap:wrap}
+.finance-actions .btn{font-size:10px;padding:6px 8px}
+.finance-category-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.finance-category{background:#182a42;border:1px solid #36516a;border-radius:10px;padding:14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.finance-category span{color:#b8c7da;font-size:11px;margin-right:auto}
+.finance-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.finance-field{display:flex;flex-direction:column;gap:6px;color:#d1dfed;font-size:12px;font-weight:700;min-width:0}
+.finance-field .form-control{max-width:none;width:100%;min-width:0}
+.finance-field:has(textarea){grid-column:1/-1}
+@media(max-width:840px){.finance-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.finance-category-grid{grid-template-columns:1fr 1fr}}
+@media(max-width:570px){.finance-kpis{grid-template-columns:1fr 1fr;gap:8px}.finance-kpi{padding:12px}.finance-kpi strong{font-size:18px}.finance-form{grid-template-columns:1fr}.finance-category-grid{grid-template-columns:1fr}}
