@@ -874,3 +874,10 @@ button,input,select,textarea{font-family:inherit}
 .finance-field:has(textarea){grid-column:1/-1}
 @media(max-width:840px){.finance-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.finance-category-grid{grid-template-columns:1fr 1fr}}
 @media(max-width:570px){.finance-kpis{grid-template-columns:1fr 1fr;gap:8px}.finance-kpi{padding:12px}.finance-kpi strong{font-size:18px}.finance-form{grid-template-columns:1fr}.finance-category-grid{grid-template-columns:1fr}}
+
+/* v1.41 — storico contabile e revisioni */
+.finance-table input[readonly],.finance-form input[readonly]{opacity:.85;cursor:default;}
+.data-table details{max-width:480px;white-space:normal;overflow-wrap:anywhere;}
+.data-table details summary{cursor:pointer;color:var(--accent,#64d9bb);font-weight:700;}
+.data-table details p{font-size:.8rem;line-height:1.35;margin:.45rem 0;}
+.formation-call-row:has(input:disabled){opacity:.65;cursor:not-allowed;}

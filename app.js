@@ -1,4 +1,4 @@
-/* EXPATS F.C. TEAM MANAGER — v1.40
+/* EXPATS F.C. TEAM MANAGER — v1.41
  * Frontend statico GitHub Pages + Google Sheets API (edit via OAuth) + GViz JSONP (pubblico).
  * Il controllo delle modifiche dipende dai permessi Google Drive sul foglio.
  */
@@ -6,12 +6,16 @@
   'use strict';
   const CFG = window.EXPATS_CONFIG;
   const SHEETS = ['Giocatori','Stagioni','Partite','Distinte','Pregresso','Tesseramenti','Ruoli','Stati','CampionatoClassifica','CampionatoPartite','CampionatoWidget','Formazioni','FormazioniPartite','EventiGol','IdoneitaRosa','FormazioniArchivio'];
-  const VERSION='v1.40';
+  const VERSION='v1.41';
+  const FORMATION_SHEETS=new Set(['Formazioni','FormazioniPartite','FormazioniArchivio']);
+  const PUBLIC_SHEETS=SHEETS.filter(s=>!FORMATION_SHEETS.has(s));
+  const defaultCallable=label=>!/infortun|assen|ritirat|squalificat|sospes|cert.*med.*(?:scadut|mancant)|non.*tesserat|non.*verificat/i.test(String(label||'').normalize('NFD').replace(/[\u0300-\u036f]/g,''));
+  const currentEligibilitySeason=sid=>{const season=state.data.seasons.find(s=>s.id===sid);return !!season && (!season.end||padDate(season.end)>=athleteToday());};
   const state = {
     data: structuredClone(window.EXPATS_DEMO),
     source: 'demo', view: 'league', seasonId: '', rosterScope: 'season',
     sort: {key:'number',dir:1}, search:'', filter:'TUTTI', leagueTab:'calendario',
-    token: '', accountEmail:'', sheetIds: {}, schemaReady:false, busy: false, inlineSaving:false, lastError: '', formationDraft:null, formationMatchId:'', formationRecordId:'', formationNew:false, formationPickerSlot:null, athleteRecords:[],athleteError:'',athleteReady:false, analyticsRows:null,analyticsError:'',analyticsDays:30,analyticsLoading:false, finance:null,financeReady:false,financeError:'',financeLoading:false,financeTab:'movimenti'
+    token: '', accountEmail:'', sheetIds: {}, schemaReady:false, busy: false, inlineSaving:false, lastError: '', formationDraft:null, formationMatchId:'', formationRecordId:'', formationNew:false, formationPickerSlot:null, athleteRecords:[],athleteError:'',athleteReady:false, analyticsRows:null,analyticsError:'',analyticsDays:30,analyticsLoading:false, finance:null,financeReady:false,financeError:'',financeLoading:false,financeTab:'movimenti', formationReady:false,formationError:'', lastSync:'',publicWarnings:[]
   };
   const $ = (sel, root=document) => root.querySelector(sel);
   const el = (name, attrs={}) => Object.assign(document.createElement(name), attrs);
@@ -58,22 +62,25 @@
   // Esponiamo al pubblico SOLO lo stato risultante, MAI la scadenza medica.
   const automaticStatus = (playerId,seasonId) => {
     const entry=(state.data.eligibility||[]).find(r=>r.seasonId===seasonId&&r.playerId===playerId);
-    return entry?.status && state.data.states.some(x=>x.id===entry.status) ? entry.status : '';
+    if(entry?.status && state.data.states.some(x=>x.id===entry.status))return entry.status;
+    if(!entry && currentEligibilitySeason(seasonId))return athleteStatusId('unverified');
+    return '';
   };
   const effectiveStatus = (p,seasonId=state.seasonId) => automaticStatus(p.id,seasonId)||p.status;
   const statusForDisplay = (p,seasonId=state.seasonId) => {
     const automatic=automaticStatus(p.id,seasonId);
     return automatic ? `<span class="athlete-auto-state" title="Stato assegnato automaticamente da Dati Atleti">${statusBadge(automatic)}<small>Automatico</small></span>` : (editor()?dropdown('status',p.status,p.id):statusBadge(p.status));
   };
-  const athleteToday=()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;};
+  const athleteToday=()=>new Date().toLocaleDateString('sv-SE',{timeZone:'Europe/Rome'});
   const athleteStatusId=kind=>{
     const normalize=x=>String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
-    const entry=state.data.states.find(x=>kind==='medical'?/cert.*med.*scadut/.test(normalize(x.name)):/non.*tesserat/.test(normalize(x.name)));
+    const entry=state.data.states.find(x=>kind==='medical'?/cert.*med.*scadut/.test(normalize(x.name)):kind==='missing'?x.id==='status-cert-missing-v141'||/cert.*med.*mancant/.test(normalize(x.name)):kind==='unverified'?x.id==='status-unverified-v141'||/non.*verificat/.test(normalize(x.name)):/non.*tesserat/.test(normalize(x.name)));
     return entry?.id||'';
   };
   const calculateAutomaticStatus = ({expiry,csi}) => {
     if(expiry && expiry<athleteToday())return athleteStatusId('medical');
     if(!csi)return athleteStatusId('csi');
+    if(!expiry)return athleteStatusId('missing');
     return '';
   };
 
@@ -121,10 +128,12 @@
   // La posizione dell'Expats F.C. e dei punteggi segue sempre Casa vs Trasferta.
   const fixture = m => ({home:m.venue==='T'?m.opponent:'Expats F.C.',away:m.venue==='T'?'Expats F.C.':m.opponent,
     homeGoals:m.venue==='T'?m.goalsAgainst:m.goalsFor,awayGoals:m.venue==='T'?m.goalsFor:m.goalsAgainst});
-  const isUnavailable = p => {
-    const visibleStatus=effectiveStatus(p);
+  const isUnavailable = (p,seasonId=state.seasonId) => {
+    const visibleStatus=effectiveStatus(p,seasonId);
     const label=`${visibleStatus||''} ${statusText(visibleStatus)}`.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleLowerCase('it');
-    return /infortun|assen|cert.*med.*scadut|non.*tesserat/.test(label);
+    const entry=state.data.states.find(x=>x.id===visibleStatus);
+    if(['medical','csi','missing','unverified'].some(k=>athleteStatusId(k)&&athleteStatusId(k)===visibleStatus))return true;
+    return entry?.callable!=null ? !entry.callable : !defaultCallable(label);
   };
   // Evidenzia solo la nostra squadra, anche quando il CSV usa 'Expats'
   // anziché 'Expats F.C.'. Evitiamo falsi positivi su altri nomi.
@@ -272,7 +281,7 @@
   const byKey = (items,key) => [...items].sort((a,b) => num(b[key])-num(a[key]) || name(a).localeCompare(name(b),'it'));
   function seasonTotals(id) {
     const st=statsForSeason(id);const matches=seasonMatches(id);
-    return { players:playersInSeason(id).length, available:playersInSeason(id).filter(p=>!isUnavailable(p)).length, active:playersInSeason(id).filter(p=>effectiveStatus(p,id)==='ATTIVO').length,
+    return { players:playersInSeason(id).length, available:playersInSeason(id).filter(p=>!isUnavailable(p,id)).length, active:playersInSeason(id).filter(p=>effectiveStatus(p,id)==='ATTIVO').length,
       injured:playersInSeason(id).filter(p=>effectiveStatus(p,id)==='INFORTUNATO').length,
       called:st.reduce((t,p)=>t+p.called,0), played:st.reduce((t,p)=>t+p.played,0),
       goals:st.reduce((t,p)=>t+p.goalsFor,0),ownGoals:matches.reduce((t,m)=>t+positiveInt(m.ownGoalsFor),0),assists:st.reduce((t,p)=>t+p.assists,0),
@@ -292,11 +301,13 @@
     $('#auth-btn').textContent=editor()?'Disconnetti Google':'Login';
     $('#auth-btn').className=editor()?'btn btn-secondary':'btn btn-outline';
     $('#live-dot').className='online-indicator '+(state.source==='drive'?'connected':'');
-    $('#sidebar-source').textContent=state.source==='demo'?'Anteprima dimostrativa':editor()?'Google Drive connesso':'Expats F.C.';
-    $('#sidebar-caption').textContent=editor()?'Gestione autorizzata':state.source==='demo'?'Dati dimostrativi':'Campionato e statistiche';
+    $('#sidebar-source').textContent=state.source==='demo'?(CFG.spreadsheetId?'Sincronizzazione':'Anteprima dimostrativa'):editor()?'Google Drive connesso':'Expats F.C.';
+    $('#sidebar-caption').textContent=editor()?'Gestione autorizzata':state.source==='demo'?(CFG.spreadsheetId?'Dati in caricamento':'Dati dimostrativi'):'Campionato e statistiche';
     document.body.classList.toggle('is-editor',editor());
   }
   function banner() {
+    if(state.lastError&&state.source==='drive')return `<div class="status-banner"><span>⚠</span><span>Dati non aggiornati. Ultima sincronizzazione: ${state.lastSync?esc(new Date(state.lastSync).toLocaleString('it-IT')):'non disponibile'}. ${editor()?esc(state.lastError):''}</span></div>`;
+    if(state.publicWarnings.length)return `<div class="status-banner">Alcuni dati del campionato non sono aggiornati: ${esc(state.publicWarnings.join(', '))}. Riprova con Aggiorna.</div>`;
     if(state.source==='demo') return `<div class="status-banner"><span>⚠</span><span><strong>Modalità anteprima.</strong> I dati sono quelli trascritti dalla schermata e non vengono salvati su Drive. Configura Google Sheets per attivare la sincronizzazione.${state.lastError?' Errore collegamento: '+esc(state.lastError):''}</span></div>`;
     // I visitatori consultano i dati senza messaggi tecnici sulla sorgente.
     if(!editor())return '';
@@ -633,8 +644,8 @@
     const a=el('a',{href:url,download:`expats-fc-campionato-${kind}-modello.csv`});document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),2000);
   }
 
-  // v1.38: FormazioniArchivio permette più formazioni nominate per stagione/partita.
-  // I precedenti fogli Formazioni e FormazioniPartite rimangono intatti come backup.
+  // v1.41: FormazioniArchivio risiede esclusivamente nell’archivio privato.
+  // I fogli legacy privati conservano le copie precedenti.
   // Le riserve sono tutti i convocati che non sono schierati tra i sette titolari.
   const LEGACY_BENCH_SLOTS=['B1','B2','B3','B4','B5'];
   const FORMATION_MODULES={
@@ -710,10 +721,13 @@
       name:saved?.name||'',confirmed:!!saved&&called.length>=7,dirty:false};
     return state.formationDraft;
   }
+  function formationRequiresEligibility(){const m=state.data.matches.find(m=>m.id===state.formationMatchId);return currentEligibilitySeason(state.seasonId)&&(!m||m.date>=athleteToday());}
   function setFormationCalled(playerId,checked){
     const draft=ensureFormationDraft();
     const valid=playersInSeason(state.seasonId).some(p=>p.id===playerId);
     if(!valid)return;
+    const player=playersInSeason(state.seasonId).find(p=>p.id===playerId);
+    if(checked&&formationRequiresEligibility()&&automaticStatus(playerId,state.seasonId)&&isUnavailable(player)){toast('Atleta non in regola: aggiorna prima Dati Atleti.',true);render();return;}
     draft.called=checked?[...new Set([...draft.called,playerId])]:draft.called.filter(id=>id!==playerId);
     draft.dirty=true;
     const count=$('#formation-called-count');if(count)count.textContent=String(draft.called.length);
@@ -758,7 +772,7 @@
   function formationCalledScreen(draft){
     const players=playersInSeason(state.seasonId).sort((a,b)=>num(a.number)-num(b.number)||name(a).localeCompare(name(b),'it'));
     const checks=players.map(p=>`<label class="formation-call-row ${isUnavailable(p)?'is-unavailable':''}">
-      <input type="checkbox" data-formation-called="${esc(p.id)}" ${draft.called.includes(p.id)?'checked':''}/>
+      <input type="checkbox" data-formation-called="${esc(p.id)}" ${draft.called.includes(p.id)?'checked':''} ${formationRequiresEligibility()&&automaticStatus(p.id,state.seasonId)&&isUnavailable(p)&&!draft.called.includes(p.id)?'disabled':''}/>
       <span class="formation-call-shirt">${jersey(p.number||'–',false,isKeeper(p))}</span>
       <span class="formation-call-info"><strong>${esc(name(p))}</strong><small>${esc(rolesText(p.role))} · ${esc(statusText(effectiveStatus(p)))}</small></span>
     </label>`).join('');
@@ -769,6 +783,7 @@
   }
   function renderFormation(){
     if(!canManageFormation())return intro('ACCESSO RISERVATO','Formazione','Accedi con il tuo account amministratore.');
+    if(!state.formationReady)return intro('AREA RISERVATA','Formazione','Archivio privato delle formazioni.')+`<section class="panel"><p>${esc(state.formationError||'Caricamento archivio privato. Se non configurato, esegui aggiornaDatabaseV141() e imposta formationsSpreadsheetId.')}</p><button class="btn btn-secondary" data-action="formation-refresh">↻ Riprova</button></section>`;
     const draft=ensureFormationDraft(),positions=FORMATION_MODULES[draft.module];
     const roster=playersInSeason(state.seasonId).sort((a,b)=>num(a.number)-num(b.number)||name(a).localeCompare(name(b),'it'));
     const matches=seasonMatches(state.seasonId),current=state.formationMatchId;
@@ -826,7 +841,7 @@
   async function saveFormation(){
     if(!canManageFormation())throw new Error('Solo l’amministratore può salvare la formazione.');
     await requireMatchAdmin();
-    if(!state.schemaReady)throw new Error('Esegui aggiornaDatabaseV138() prima di salvare più formazioni.');
+    if(!state.formationReady||!CFG.formationsSpreadsheetId)throw new Error('Archivio privato formazioni non pronto.');
     const draft=ensureFormationDraft(),positions=FORMATION_MODULES[draft.module].map(p=>p[0]);
     const nameValue=String(document.querySelector('#formation-name')?.value??draft.name).trim().replace(/\s+/g,' ');
     if(!nameValue||nameValue.length>80)throw new Error('Inserisci un nome per la formazione (massimo 80 caratteri).');
@@ -834,6 +849,8 @@
     const starters=positions.map(k=>draft.slots[k]);
     if(starters.some(id=>!id)||new Set(starters).size!==7)throw new Error('Assegna sette titolari diversi.');
     const selected=new Set(draft.called),valid=new Set(playersInSeason(state.seasonId).map(p=>p.id));
+    const match=state.data.matches.find(m=>m.id===state.formationMatchId);
+    if(currentEligibilitySeason(state.seasonId)&&(!match||match.date>=athleteToday())&&playersInSeason(state.seasonId).some(p=>selected.has(p.id)&&automaticStatus(p.id,state.seasonId)&&isUnavailable(p)))throw new Error('Uno o più convocati non sono in regola. Correggi Dati Atleti o rimuovili dai convocati.');
     if(selected.size!==draft.called.length||[...selected].some(id=>!valid.has(id))||starters.some(id=>!selected.has(id)))
       throw new Error('Controlla convocati, titolari e duplicati.');
     if(state.formationMatchId&&!state.data.matches.some(m=>m.id===state.formationMatchId&&m.seasonId===state.seasonId))
@@ -847,7 +864,13 @@
     const id=prev?.id||uid('form');
     const values=[id,state.seasonId,state.formationMatchId||'',nameValue,draft.module,JSON.stringify(slots),now];
     // Aggiorna soltanto la formazione selezionata; per Nuova formazione crea sempre una riga con ID nuovo.
-    const success=await withBusy(()=>writeAtomic([{sheet:'FormazioniArchivio',...(prev?{row:prev._row}:{}),rows:[values]}]));
+    const success=await withBusy(async()=>{
+      const fresh=await readFormationArchive();
+      if(prev && JSON.stringify(fresh.find(f=>f.id===prev.id))!==JSON.stringify(prev))throw new Error('Formazione modificata altrove. Aggiorna e riprova.');
+      if(fresh.some(f=>f.id!==prev?.id&&f.seasonId===state.seasonId&&f.matchId===(state.formationMatchId||'')&&f.name.toLocaleLowerCase('it')===nameValue.toLocaleLowerCase('it')))throw new Error('Nome già presente. Aggiorna e riprova.');
+      const range=encodeURIComponent(prev?`'FormazioniArchivio'!A${prev._row}:G${prev._row}`:"'FormazioniArchivio'!A:G");
+      await googleAPI(`/values/${range}${prev?'':':append'}?valueInputOption=RAW${prev?'':'&insertDataOption=INSERT_ROWS'}`,{spreadsheetId:CFG.formationsSpreadsheetId,method:prev?'PUT':'POST',body:JSON.stringify({values:[values]})});
+    });
     if(success){
       state.formationRecordId=id;state.formationNew=false;state.formationDraft=null;
       render();toast('Formazione “'+nameValue+'” salvata, senza sovrascrivere le altre.');
@@ -882,12 +905,12 @@
   }
   let lastAnalyticsPage='',lastAnalyticsAt=0;
   function analyticsTrackPage(){
-    if(!analyticsEnabled())return;
+    if(!analyticsEnabled()||(CFG.spreadsheetId&&state.source!=='drive'))return;
     const page=state.view==='league'?(state.leagueTab==='classifica'?'league-classifica':'league-risultati'):state.view;
     if(!ANALYTICS_PUBLIC_PAGES.includes(page))return;
     const now=Date.now();if(page===lastAnalyticsPage&&now-lastAnalyticsAt<3000)return;
     lastAnalyticsPage=page;lastAnalyticsAt=now;
-    const payload=JSON.stringify({action:'aggregate_view_v136',page,device:analyticsDevice(),season:String(activeSeason()?.name||'').slice(0,25)});
+    const payload=JSON.stringify({action:'aggregate_view_v141',page,device:analyticsDevice(),season:String(activeSeason()?.name||'').slice(0,25)});
     try{
       const blob=new Blob([payload],{type:'text/plain;charset=UTF-8'});
       if(navigator.sendBeacon&&navigator.sendBeacon(CFG.analyticsWebAppUrl,blob))return;
@@ -896,14 +919,15 @@
   }
   async function loadAnalytics(){
     if(!canManageFormation())return;
-    if(!CFG.analyticsSpreadsheetId){state.analyticsError='Completa analyticsSpreadsheetId nel config.js dopo la migrazione v1.36.';state.analyticsRows=null;render();return;}
+    if(!CFG.analyticsSpreadsheetId||CFG.analyticsSpreadsheetId===CFG.spreadsheetId){state.analyticsError='Completa analyticsSpreadsheetId nel config.js dopo la migrazione v1.36.';state.analyticsRows=null;render();return;}
     if(state.analyticsLoading)return;
-    state.analyticsLoading=true;state.analyticsError='';render();
+    state.analyticsLoading=true;state.analyticsError='';const token=state.token;render();
     try{
       const res=await googleAPI(`/values/${encodeURIComponent("'Aggregati'!A:F")}?valueRenderOption=FORMATTED_VALUE`,{spreadsheetId:CFG.analyticsSpreadsheetId});
+      if(token!==state.token||!canManageFormation())return;
       const rows=res.values||[];
       if((rows[0]||[]).slice(0,6).join('|')!=='Giorno|Ora|Sezione|Stagione|Dispositivo|Visualizzazioni')throw new Error('Archivio analytics non aggiornato. Esegui aggiornaDatabaseV136() e pubblica una nuova versione della Web App.');
-      state.analyticsRows=rows.slice(1).filter(r=>r[0]&&r[2]).map(r=>({day:String(r[0]),hour:String(r[1]||'').padStart(2,'0'),page:String(r[2]),season:String(r[3]||''),device:String(r[4]||''),count:Math.max(0,Number(r[5])||0)}));
+      state.analyticsRows=rows.slice(1).filter(r=>r[0]&&r[2]).map(r=>({day:padDate(r[0]),hour:String(r[1]??'').padStart(2,'0'),page:String(r[2]),season:String(r[3]||''),device:String(r[4]||''),count:Math.max(0,Number(r[5])||0)}));
     }catch(e){state.analyticsRows=null;state.analyticsError=safeError(e);}
     finally{state.analyticsLoading=false;render();}
   }
@@ -952,13 +976,14 @@
     const a=document.createElement('a');a.href=url;a.download=`Expats-Statistiche-Aggregate-${state.analyticsDays}giorni.csv`;document.body.append(a);a.click();a.remove();URL.revokeObjectURL(url);
   }
 
-  /* ECONOMIA PRIVATA v1.40. Nessuna informazione economica è caricata in modalità pubblica. */
+  /* ECONOMIA PRIVATA v1.41. Nessuna informazione economica è caricata in modalità pubblica. */
   const FINANCE_HEADERS={
     Movimenti:['ID','StagioneID','Data','Descrizione','Categoria','Tipo','PrezzoUnitario','Quantita','Scadenza','Note','DocumentoUrl','Attivo'],
     PagamentiMovimenti:['ID','MovimentoID','Data','Importo','Metodo','Note','Attivo'],
     QuoteAtleti:['ID','StagioneID','GiocatoreID','Descrizione','ImportoDovuto','Scadenza','Note','Attivo'],
     PagamentiQuote:['ID','QuotaID','Data','Importo','Metodo','Note','Attivo'],
-    Categorie:['ID','Nome','Tipo','Attivo']
+    Categorie:['ID','Nome','Tipo','Attivo'],
+    LogRevisioniContabili:['ID','DataOra','Autore','Scheda','VoceID','Operazione','PrimaJSON','DopoJSON','Motivo']
   };
   const money=v=>new Intl.NumberFormat('it-IT',{style:'currency',currency:'EUR'}).format(num(v));
   const cents=v=>Math.round((Number(v)||0)*100);
@@ -1025,13 +1050,18 @@
     const s=financeSummary();
     const cards=[['SPESE PREVISTE',s.expenseTotal],['USCITE PAGATE',s.expensePaid],['ENTRATE INCASSATE',s.incomePaid+s.duesPaid],['SALDO DI CASSA',s.balance],['SPESE DA SALDARE',s.pendingExpense],['QUOTE DA INCASSARE',s.pendingDues]];
     let body=`<section class="finance-kpis">${cards.map(([label,value])=>`<div class="finance-kpi"><small>${esc(label)}</small><strong class="${value<0?'finance-negative':''}">${money(value)}</strong></div>`).join('')}</section>`;
-    body+=`<div class="finance-toolbar"><button class="btn ${state.financeTab==='movimenti'?'btn-primary':'btn-secondary'}" data-action="finance-tab" data-tab="movimenti">Movimenti società</button><button class="btn ${state.financeTab==='quote'?'btn-primary':'btn-secondary'}" data-action="finance-tab" data-tab="quote">Quote giocatori</button><button class="btn ${state.financeTab==='categorie'?'btn-primary':'btn-secondary'}" data-action="finance-tab" data-tab="categorie">Categorie</button></div>`;
+    body+=`<div class="finance-toolbar"><button class="btn ${state.financeTab==='movimenti'?'btn-primary':'btn-secondary'}" data-action="finance-tab" data-tab="movimenti">Movimenti società</button><button class="btn ${state.financeTab==='quote'?'btn-primary':'btn-secondary'}" data-action="finance-tab" data-tab="quote">Quote giocatori</button><button class="btn ${state.financeTab==='categorie'?'btn-primary':'btn-secondary'}" data-action="finance-tab" data-tab="categorie">Categorie</button><button class="btn ${state.financeTab==='storico'?'btn-primary':'btn-secondary'}" data-action="finance-tab" data-tab="storico">Storico e annullati</button></div>`;
     if(state.financeTab==='movimenti'){
       const rows=activeFin('Movimenti').filter(r=>r.seasonId===state.seasonId).sort((a,b)=>b.date.localeCompare(a.date));
       body+=`<section class="panel"><div class="panel-heading"><h2 class="panel-title">Entrate e uscite · ${esc(activeSeason().name)}</h2><button class="btn btn-primary" data-action="finance-movement">＋ Nuovo movimento</button></div><div class="table-shell"><table class="data-table finance-table"><thead><tr><th>Data</th><th>Descrizione</th><th>Tipo / categoria</th><th>Importo</th><th>Pagato</th><th>Residuo</th><th>Stato</th><th>Azioni</th></tr></thead><tbody>${rows.map(r=>{const total=movementTotal(r),paid=paymentTotal('PagamentiMovimenti','movementId',r.id),rem=remaining(total,paid);return `<tr><td>${esc(localeDate(r.date))}</td><td><strong>${esc(r.description)}</strong>${r.due?`<small>Scadenza: ${esc(localeDate(r.due))}</small>`:''}${r.documentUrl&&/^https:\/\//.test(r.documentUrl)?`<small><a href="${esc(r.documentUrl)}" target="_blank" rel="noopener noreferrer">Documento ↗</a></small>`:''}</td><td>${r.type==='ENTRATA'?'Entrata':'Uscita'}<small>${esc(financeCategoryName(r.category))}</small></td><td>${money(total)}</td><td>${money(paid)}</td><td>${money(rem)}</td><td>${finDueLabel(total,paid,r.due)}</td><td><div class="finance-actions"><button class="btn btn-secondary btn-small" data-action="finance-movement" data-id="${esc(r.id)}">Modifica</button><button class="btn btn-secondary btn-small" data-action="finance-pay-movement" data-id="${esc(r.id)}" ${rem<=0?'disabled':''}>Pagamento</button><button class="btn btn-secondary btn-small" data-action="finance-history" data-kind="movement" data-id="${esc(r.id)}">Storico</button><button class="btn btn-danger btn-small" data-action="finance-remove" data-kind="Movimenti" data-id="${esc(r.id)}">Annulla</button></div></td></tr>`}).join('')||'<tr><td colspan="8">Nessun movimento per questa stagione.</td></tr>'}</tbody></table></div><p class="notice">Gli importi versati sono registrati separatamente. Per una sponsorizzazione crea un'Entrata, non una spesa negativa.</p></section>`;
     }else if(state.financeTab==='quote'){
       const rows=activeFin('QuoteAtleti').filter(r=>r.seasonId===state.seasonId).sort((a,b)=>financePlayerName(a.playerId).localeCompare(financePlayerName(b.playerId),'it'));
       body+=`<section class="panel"><div class="panel-heading"><h2 class="panel-title">Quote individuali · ${esc(activeSeason().name)}</h2><div class="finance-actions"><button class="btn btn-secondary" data-action="finance-fee-bulk">＋ Quota a tutta la rosa</button><button class="btn btn-primary" data-action="finance-fee">＋ Assegna quota</button></div></div><div class="table-shell"><table class="data-table finance-table"><thead><tr><th>Atleta</th><th>Quota</th><th>Dovuto</th><th>Versato</th><th>Residuo</th><th>Scadenza</th><th>Stato</th><th>Azioni</th></tr></thead><tbody>${rows.map(r=>{const paid=paymentTotal('PagamentiQuote','feeId',r.id),rem=remaining(r.amount,paid);return `<tr><td><strong>${esc(financePlayerName(r.playerId))}</strong></td><td>${esc(r.description)}</td><td>${money(r.amount)}</td><td>${money(paid)}</td><td>${money(rem)}</td><td>${r.due?esc(localeDate(r.due)):'—'}</td><td>${finDueLabel(r.amount,paid,r.due)}</td><td><div class="finance-actions"><button class="btn btn-secondary btn-small" data-action="finance-fee" data-id="${esc(r.id)}">Modifica</button><button class="btn btn-secondary btn-small" data-action="finance-pay-fee" data-id="${esc(r.id)}" ${rem<=0?'disabled':''}>Versamento</button><button class="btn btn-secondary btn-small" data-action="finance-history" data-kind="fee" data-id="${esc(r.id)}">Storico</button><button class="btn btn-danger btn-small" data-action="finance-remove" data-kind="QuoteAtleti" data-id="${esc(r.id)}">Annulla</button></div></td></tr>`}).join('')||'<tr><td colspan="8">Non sono state assegnate quote individuali a questa stagione.</td></tr>'}</tbody></table></div><p class="notice">Le quote previste non sono incassi. Entrano nel saldo soltanto i versamenti realmente registrati.</p></section>`;
+    }else if(state.financeTab==='storico'){
+      const inactive=[...finRows('Movimenti').filter(r=>!r.active&&r.seasonId===state.seasonId).map(r=>({id:r.id,label:r.description,amount:movementTotal(r),kind:'movement'})),...finRows('QuoteAtleti').filter(r=>!r.active&&r.seasonId===state.seasonId).map(r=>({id:r.id,label:financePlayerName(r.playerId)+' · '+r.description,amount:r.amount,kind:'fee'}))];
+      const logs=finRows('LogRevisioniContabili').slice().reverse();
+      const dataLabel=r=>{try{const v=JSON.parse(r);return Array.isArray(v)?v.map(x=>String(x??'')).join(' · '):'—';}catch(_){return '—';}};
+      body+=`<section class="panel"><h2 class="panel-title">Voci annullate · ${esc(activeSeason().name)}</h2><p class="notice">Non partecipano ai totali. Le voci precedenti alla v1.41 non hanno una data di annullamento registrata.</p><div class="table-shell"><table class="data-table"><thead><tr><th>Voce</th><th>Importo</th><th>Stato</th><th>Storico</th></tr></thead><tbody>${inactive.map(r=>`<tr><td>${esc(r.label)}</td><td>${money(r.amount)}</td><td><span class="chip danger">Annullata</span>${cancelInfo(r.kind==='fee'?'QuoteAtleti':'Movimenti',r.id)}</td><td><button class="btn btn-secondary btn-small" data-action="finance-history" data-kind="${r.kind}" data-id="${esc(r.id)}">Versamenti</button></td></tr>`).join('')||'<tr><td colspan="4">Nessuna voce annullata.</td></tr>'}</tbody></table></div></section><section class="panel mt-20"><h2 class="panel-title">Registro revisioni · tutte le stagioni</h2><p class="notice">Da v1.41, operazioni dall’app. Le modifiche dirette al foglio non vengono registrate qui.</p><div class="table-shell"><table class="data-table"><thead><tr><th>Data e ora</th><th>Scheda</th><th>Operazione</th><th>Dettagli</th></tr></thead><tbody>${logs.map(r=>`<tr><td>${esc(String(r.date).replace('T',' ').slice(0,19))} UTC</td><td>${esc(r.sheet)}</td><td>${esc(r.op)}</td><td><details><summary>Prima / dopo</summary><p>Autore: ${esc(r.author)}</p>${r.reason?`<p>Motivo: ${esc(r.reason)}</p>`:''}<p>Voce: ${esc(r.target)}</p><p>Prima: ${esc(dataLabel(r.before))}</p><p>Dopo: ${esc(dataLabel(r.after))}</p></details></td></tr>`).join('')||'<tr><td colspan="4">Nessuna revisione dopo la migrazione.</td></tr>'}</tbody></table></div></section>`;
     }else{
       const cats=activeFin('Categorie');
       body+=`<section class="panel"><div class="panel-heading"><h2 class="panel-title">Categorie personalizzate</h2><button class="btn btn-primary" data-action="finance-category">＋ Nuova categoria</button></div><div class="finance-category-grid">${cats.map(x=>`<div class="finance-category"><strong>${esc(x.name)}</strong><span>${x.type==='ENTRATA'?'Entrate':'Uscite'}</span><button class="btn btn-secondary btn-small" data-action="finance-category" data-id="${esc(x.id)}">Modifica</button></div>`).join('')||'<p class="form-guide">Nessuna categoria disponibile.</p>'}</div></section>`;
@@ -1039,40 +1069,130 @@
     return head+banner()+body;
   }
   async function loadFinancePrivate(){
-    if(!isFinAdmin()||!CFG.financeSpreadsheetId)return;
+    if(!isFinAdmin()||!CFG.financeSpreadsheetId||CFG.financeSpreadsheetId===CFG.spreadsheetId)return;
     if(state.financeLoading)return;
-    state.financeLoading=true;state.financeError='';render();
+    state.financeLoading=true;state.financeError='';const token=state.token;render();
     try{
       const query=new URLSearchParams();Object.keys(FINANCE_HEADERS).forEach(x=>query.append('ranges',`'${x}'!A:P`));
       query.set('valueRenderOption','UNFORMATTED_VALUE');
       const result=await googleAPI('/values:batchGet?'+query.toString(),{spreadsheetId:CFG.financeSpreadsheetId});
+      if(token!==state.token||!isFinAdmin())return;
       const parsed={};
       for(const [index,sheet] of Object.keys(FINANCE_HEADERS).entries()){
         const cells=result.valueRanges?.[index]?.values||[],headers=FINANCE_HEADERS[sheet];
-        if(headers.some((h,i)=>String(cells[0]?.[i]||'')!==h))throw new Error('La scheda '+sheet+' non è pronta. Esegui aggiornaDatabaseV140().');
+        if(headers.some((h,i)=>String(cells[0]?.[i]||'')!==h))throw new Error('La scheda '+sheet+' non è pronta. Esegui aggiornaDatabaseV141().');
         parsed[sheet]=cells.slice(1).map((r,i)=>{
           const row={_row:i+2};headers.forEach((h,j)=>row[h]=r[j]??'');return row;
         }).filter(r=>String(r.ID).trim());
       }
       const toObj=(r,keys)=>Object.fromEntries(keys.map(([k,h])=>[k,r[h]]));
+      state.financeRaw=parsed;
       state.finance={
         Movimenti:parsed.Movimenti.map(r=>({...toObj(r,[['id','ID'],['seasonId','StagioneID'],['date','Data'],['description','Descrizione'],['category','Categoria'],['type','Tipo'],['unit','PrezzoUnitario'],['qty','Quantita'],['due','Scadenza'],['note','Note'],['documentUrl','DocumentoUrl']]),active:one(r.Attivo),_row:r._row})),
         PagamentiMovimenti:parsed.PagamentiMovimenti.map(r=>({...toObj(r,[['id','ID'],['movementId','MovimentoID'],['date','Data'],['amount','Importo'],['method','Metodo'],['note','Note']]),active:one(r.Attivo),_row:r._row})),
         QuoteAtleti:parsed.QuoteAtleti.map(r=>({...toObj(r,[['id','ID'],['seasonId','StagioneID'],['playerId','GiocatoreID'],['description','Descrizione'],['amount','ImportoDovuto'],['due','Scadenza'],['note','Note']]),active:one(r.Attivo),_row:r._row})),
         PagamentiQuote:parsed.PagamentiQuote.map(r=>({...toObj(r,[['id','ID'],['feeId','QuotaID'],['date','Data'],['amount','Importo'],['method','Metodo'],['note','Note']]),active:one(r.Attivo),_row:r._row})),
-        Categorie:parsed.Categorie.map(r=>({...toObj(r,[['id','ID'],['name','Nome'],['type','Tipo']]),active:one(r.Attivo),_row:r._row}))
+        Categorie:parsed.Categorie.map(r=>({...toObj(r,[['id','ID'],['name','Nome'],['type','Tipo']]),active:one(r.Attivo),_row:r._row})),
+        LogRevisioniContabili:parsed.LogRevisioniContabili.map(r=>({...toObj(r,[['id','ID'],['date','DataOra'],['author','Autore'],['sheet','Scheda'],['target','VoceID'],['op','Operazione'],['before','PrimaJSON'],['after','DopoJSON'],['reason','Motivo']]),_row:r._row}))
       };
+      for(const sheet of ['Movimenti','PagamentiMovimenti','QuoteAtleti','PagamentiQuote'])for(const r of state.finance[sheet]){if('date' in r)r.date=padDate(r.date);if('due' in r)r.due=padDate(r.due);}
       state.financeReady=true;
     }catch(error){state.financeReady=false;state.financeError=safeError(error);}
     finally{state.financeLoading=false;render();}
   }
-  async function writeFin(sheet,values,row=0){
+  // Lock cooperativo condiviso sul documento: Google Sheets rifiuta titoli/ID duplicati.
+  // ID diverso per ogni acquisizione; commit e rimozione del proprio lock sono atomici.
+  const FINANCE_LOCK_TITLE='__EXPATS_FINANCE_LOCK_V141';
+  async function financeLocked(task){
     if(!isFinAdmin())throw new Error('Accesso riservato all’amministratore.');
-    if(!CFG.financeSpreadsheetId||!state.financeReady)throw new Error('Archivio privato Spese società non pronto.');
-    const encoded=encodeURIComponent(`'${sheet}'!${row?'A'+row+':'+String.fromCharCode(64+finColumns(sheet).length)+row:'A:'+String.fromCharCode(64+finColumns(sheet).length)}`);
-    const path=row?`/values/${encoded}?valueInputOption=RAW`:`/values/${encoded}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`;
-    await googleAPI(path,{spreadsheetId:CFG.financeSpreadsheetId,method:row?'PUT':'POST',body:JSON.stringify({values:[values]})});
+    if(await verifyGoogleIdentity()!==adminEmail())throw new Error('Account amministratore non verificato.');
+    const id=1+(crypto.getRandomValues(new Uint32Array(1))[0]%2000000000);
+    const marker=uid('lock');
+    const metadata=()=>googleAPI('?fields=sheets(properties(sheetId,title))',{spreadsheetId:CFG.financeSpreadsheetId});
+    let acquired=false;
+    try{
+      try{
+        await googleAPI(':batchUpdate',{spreadsheetId:CFG.financeSpreadsheetId,method:'POST',body:JSON.stringify({requests:[
+          {addSheet:{properties:{sheetId:id,title:FINANCE_LOCK_TITLE,hidden:true,gridProperties:{rowCount:1,columnCount:3}}}},
+          {updateCells:{start:{sheetId:id,rowIndex:0,columnIndex:0},rows:[rowCells([marker,new Date().toISOString(),state.accountEmail])],fields:'userEnteredValue'}}
+        ]})});
+        acquired=true;
+      }catch(error){
+        // Anche dopo una risposta di rete ambigua, non utilizzare il lock di un altro client.
+        const meta=await metadata().catch(()=>null);
+        const lock=meta?.sheets?.find(x=>x.properties.title===FINANCE_LOCK_TITLE);
+        if(lock?.properties.sheetId===id){
+          const v=await googleAPI(`/values/${encodeURIComponent("'"+FINANCE_LOCK_TITLE+"'!A1:C1")}?valueRenderOption=UNFORMATTED_VALUE`,{spreadsheetId:CFG.financeSpreadsheetId}).catch(()=>null);
+          acquired=v?.values?.[0]?.[0]===marker;
+        }
+        if(!acquired)throw new Error(lock?'Contabilità occupata da un altro salvataggio. Riprova. Se il blocco persiste, vedi LEGGIMI.':safeError(error));
+      }
+      if(state.financeLoading)throw new Error('Archivio in aggiornamento. Riprova.');
+      await loadFinancePrivate();if(!state.financeReady||!isFinAdmin())throw new Error('Impossibile rileggere l’archivio privato.');
+      return await task(id);
+    }finally{
+      if(acquired&&isFinAdmin()){
+        // Il commit riuscito elimina già il foglio; se ancora presente si elimina solo l'ID acquisito.
+        try{const meta=await metadata();if(meta.sheets?.some(x=>x.properties.sheetId===id&&x.properties.title===FINANCE_LOCK_TITLE))await googleAPI(':batchUpdate',{spreadsheetId:CFG.financeSpreadsheetId,method:'POST',body:JSON.stringify({requests:[{deleteSheet:{sheetId:id}}]})});}
+        catch(err){console.warn('Lock contabile da verificare:',safeError(err));}
+      }
+    }
+  }
+  const rawFin=(sheet,id)=>state.financeRaw?.[sheet]?.find(r=>String(r.ID)===String(id));
+  const finSnapshot=(sheet,r)=>r?FINANCE_HEADERS[sheet].map(h=>r[h]??''):null;
+  async function financeCommit(entries,lockId){
+    if(!isFinAdmin())throw new Error('Sessione scaduta.');
+    const meta=await googleAPI('?fields=sheets(properties(sheetId,title))',{spreadsheetId:CFG.financeSpreadsheetId});
+    const ids=Object.fromEntries((meta.sheets||[]).map(x=>[x.properties.title,x.properties.sheetId]));
+    if(ids.LogRevisioniContabili===undefined)throw new Error('Registro revisioni mancante.');
+    if(!lockId||ids[FINANCE_LOCK_TITLE]!==lockId)throw new Error('Blocco contabile perso: riapri la voce.');
+    const audit=[],requests=[];
+    for(const {sheet,values,previous,reason=''} of entries){
+      if(ids[sheet]===undefined)throw new Error('Scheda mancante: '+sheet);
+      const rows=[rowCells(values)];
+      requests.push(previous?{updateCells:{start:{sheetId:ids[sheet],rowIndex:previous._row-1,columnIndex:0},rows,fields:'userEnteredValue'}}:{appendCells:{sheetId:ids[sheet],rows,fields:'userEnteredValue'}});
+      const activeIndex=FINANCE_HEADERS[sheet].indexOf('Attivo');
+      const op=!previous?'CREAZIONE':activeIndex>=0&&!one(values[activeIndex])?'ANNULLAMENTO':'MODIFICA';
+      audit.push(rowCells([uid('rev'),new Date().toISOString(),state.accountEmail,sheet,values[0],op,JSON.stringify(finSnapshot(sheet,previous)),JSON.stringify(values),String(reason).slice(0,300)]));
+    }
+    if(!requests.length)return;
+    requests.push({appendCells:{sheetId:ids.LogRevisioniContabili,rows:audit,fields:'userEnteredValue'}});
+    requests.push({deleteSheet:{sheetId:lockId}});
+    try{await googleAPI(':batchUpdate',{spreadsheetId:CFG.financeSpreadsheetId,method:'POST',body:JSON.stringify({requests})});}catch(err){throw new Error('Salvataggio non confermato. Aggiorna e verifica il registro prima di riprovare: '+safeError(err));}
     await loadFinancePrivate();
+  }
+  function validateFinanceWrite(sheet,values,previous){
+    const [id,link]=values;
+    const isPayment=sheet==='PagamentiQuote'||sheet==='PagamentiMovimenti';
+    if(isPayment&&one(values[6])){
+      const fee=sheet==='PagamentiQuote';
+      const target=activeFin(fee?'QuoteAtleti':'Movimenti').find(x=>x.id===link);
+      if(!target)throw new Error('Voce non più disponibile.');
+      const paid=activeFin(sheet).filter(p=>(fee?p.feeId:p.movementId)===link&&p.id!==id).reduce((a,p)=>a+cents(p.amount),0);
+      if(cents(values[3])<=0||paid+cents(values[3])>cents(fee?target.amount:movementTotal(target)))throw new Error('Il residuo è cambiato: versamento superiore al dovuto.');
+    }
+    if(sheet==='Movimenti'||sheet==='QuoteAtleti'){
+      const fee=sheet==='QuoteAtleti';
+      const paid=paymentTotal(fee?'PagamentiQuote':'PagamentiMovimenti',fee?'feeId':'movementId',id);
+      const total=fee?asMoney(values[4]):fromCents(Math.round(cents(values[6])*num(values[7])));
+      if(cents(paid)>cents(total)||(!one(values[fee?7:11])&&cents(paid)>0))throw new Error('Esistono versamenti: aggiorna il residuo prima di modificare.');
+      if(fee&&one(values[7])){
+        if(previous&&String(previous.GiocatoreID)!==String(values[2]))throw new Error('Il destinatario di una quota esistente non è modificabile.');
+        if(activeFin('QuoteAtleti').some(q=>q.id!==id&&q.seasonId===values[1]&&q.playerId===values[2]&&String(q.description).trim().toLowerCase()===String(values[3]).trim().toLowerCase()))throw new Error('Esiste già una quota con questa descrizione per l’atleta.');
+      }
+    }
+  }
+  async function writeFin(sheet,values,row=0,reason=''){
+    if(!isFinAdmin()||!state.financeReady)throw new Error('Archivio privato non pronto.');
+    const prev=row?rawFin(sheet,values[0]):null;
+    const before=JSON.stringify(finSnapshot(sheet,prev));
+    if(row&&!prev)throw new Error('Voce non trovata.');
+    await financeLocked(async(lockId)=>{
+      const fresh=rawFin(sheet,values[0]);
+      if(JSON.stringify(finSnapshot(sheet,fresh))!==before)throw new Error('Dati modificati da un’altra scheda: riapri la voce.');
+      validateFinanceWrite(sheet,values,fresh);
+      await financeCommit([{sheet,values,previous:fresh,reason}],lockId);
+    });
   }
   function finCheckedForm(){const f=document.getElementById('finance-form');if(!f)throw new Error('Modulo non trovato');return Object.fromEntries(new FormData(f).entries());}
   function finPositive(v,label){const n=Number(String(v).replace(',','.'));if(!Number.isFinite(n)||n<=0)throw new Error(label+' deve essere maggiore di zero.');return asMoney(n);}
@@ -1086,7 +1206,7 @@
     const options=playersInSeason(state.seasonId).sort((a,b)=>name(a).localeCompare(name(b),'it')).map(p=>[p.id,name(p)]);
     if(q&&!options.some(x=>x[0]===q.playerId))options.push([q.playerId,financePlayerName(q.playerId)]);
     if(!options.length){toast('Nessun giocatore nella rosa selezionata.',true);return;}
-    const fields=[finFormRow('Giocatore',finSelect('playerId',options,q?.playerId||options[0][0])),finFormRow('Tipo quota',finInput('description',q?.description||'Quota stagione','text','required maxlength="100"')),finFormRow('Importo dovuto (€)',finInput('amount',q?.amount??'','number','min="0.01" step="0.01" required')),finFormRow('Scadenza',finInput('due',q?.due||'','date')),finFormRow('Note',`<textarea class="form-control" name="note" rows="2" maxlength="500">${esc(q?.note||'')}</textarea>`)];
+    const fields=[finFormRow('Giocatore',q?`<input type="hidden" name="playerId" value="${esc(q.playerId)}"><input class="form-control" value="${esc(financePlayerName(q.playerId))}" readonly><small>Il destinatario non si cambia: annulla e crea una nuova quota se necessario.</small>`:finSelect('playerId',options,options[0][0])),finFormRow('Tipo quota',finInput('description',q?.description||'Quota stagione','text','required maxlength="100"')),finFormRow('Importo dovuto (€)',finInput('amount',q?.amount??'','number','min="0.01" step="0.01" required')),finFormRow('Scadenza',finInput('due',q?.due||'','date')),finFormRow('Note',`<textarea class="form-control" name="note" rows="2" maxlength="500">${esc(q?.note||'')}</textarea>`)];
     modal(q?'Modifica quota atleta':'Nuova quota atleta',`<form id="finance-form" class="finance-form" onsubmit="return false">${fields.join('')}</form><p class="form-guide">Una quota crea un importo da riscuotere. Registra gli incassi separatamente.</p>`,`<button class="btn btn-secondary" data-action="close-modal">Annulla</button><button class="btn btn-primary" data-action="finance-save-fee" data-id="${esc(id)}">Salva quota</button>`);
   }
   function financeCategoryForm(id=''){
@@ -1107,9 +1227,11 @@
       if(!values.length)throw new Error('Tutti i giocatori hanno già questa quota.');
       if(!window.confirm(`Assegnare ${values.length} quote da ${money(amount)} ciascuna?`))return;
       state.busy=true;
-      const range=encodeURIComponent("'QuoteAtleti'!A:H");
-      await googleAPI(`/values/${range}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,{spreadsheetId:CFG.financeSpreadsheetId,method:'POST',body:JSON.stringify({values})});
-      closeModal();await loadFinancePrivate();toast(`Assegnate ${values.length} quote individuali.`);
+      await financeLocked(async(lockId)=>{
+        for(const v of values)validateFinanceWrite('QuoteAtleti',v,null);
+        await financeCommit(values.map(v=>({sheet:'QuoteAtleti',values:v,previous:null})),lockId);
+      });
+      closeModal();toast(`Assegnate ${values.length} quote individuali.`);
     }catch(err){toast('Quote non assegnate: '+safeError(err),true);}finally{state.busy=false;}
   }
   function financePaymentForm(kind,id){
@@ -1162,50 +1284,55 @@
       state.busy=true;await writeFin(sheet,[uid('pag'),id,f.date||finIsoToday(),amount,String(f.method||'Altro'),String(f.note||'').slice(0,250),1]);closeModal();toast('Versamento registrato.');
     }catch(err){toast('Pagamento non registrato: '+safeError(err),true);}finally{state.busy=false;}
   }
+  const cancellationLog=(sheet,id)=>finRows('LogRevisioniContabili').slice().reverse().find(x=>x.sheet===sheet&&x.target===id&&x.op==='ANNULLAMENTO');
+  const cancelInfo=(sheet,id)=>{const r=cancellationLog(sheet,id);return r?`<small>${esc(new Date(r.date).toLocaleString('it-IT',{timeZone:'Europe/Rome'}))}${r.reason?' · '+esc(r.reason):''}</small>`:'<small>Data non registrata</small>';};
   function financePaymentHistory(kind,id){
     const fee=kind==='fee',target=finRows(fee?'QuoteAtleti':'Movimenti').find(x=>x.id===id);
     if(!target)return;
-    const sheet=fee?'PagamentiQuote':'PagamentiMovimenti',rows=finRows(sheet).filter(p=>p.active&&(fee?p.feeId:p.movementId)===id);
+    const sheet=fee?'PagamentiQuote':'PagamentiMovimenti',rows=finRows(sheet).filter(p=>(fee?p.feeId:p.movementId)===id);
     const total=fee?target.amount:movementTotal(target),paid=paymentTotal(sheet,fee?'feeId':'movementId',id);
     const heading=fee?financePlayerName(target.playerId)+' · '+target.description:target.description;
-    const html=`<p class="form-guide"><strong>${esc(heading)}</strong><br>Totale ${money(total)} · Registrato ${money(paid)} · Residuo ${money(remaining(total,paid))}.</p><div class="table-shell"><table class="data-table finance-table"><thead><tr><th>Data</th><th>Metodo</th><th>Importo</th><th>Note</th><th>Azioni</th></tr></thead><tbody>${rows.map(p=>`<tr><td>${esc(localeDate(p.date))}</td><td>${esc(p.method)}</td><td>${money(p.amount)}</td><td>${esc(p.note||'—')}</td><td><button class="btn btn-danger btn-small" data-action="finance-cancel-payment" data-kind="${kind}" data-id="${esc(p.id)}">Annulla versamento</button></td></tr>`).join('')||'<tr><td colspan="5">Nessun versamento registrato.</td></tr>'}</tbody></table></div>`;
+    const html=`<p class="form-guide"><strong>${esc(heading)}</strong><br>Totale ${money(total)} · Registrato ${money(paid)} · Residuo ${money(remaining(total,paid))}.</p><div class="table-shell"><table class="data-table finance-table"><thead><tr><th>Data</th><th>Metodo</th><th>Importo</th><th>Note</th><th>Azioni</th></tr></thead><tbody>${rows.map(p=>`<tr><td>${esc(localeDate(p.date))}</td><td>${esc(p.method)}</td><td>${money(p.amount)}</td><td>${esc(p.note||'—')}</td><td>${p.active?`<button class="btn btn-danger btn-small" data-action="finance-cancel-payment" data-kind="${kind}" data-id="${esc(p.id)}">Annulla versamento</button>`:`<span class="chip danger">Annullato</span>${cancelInfo(sheet,p.id)}`}</td></tr>`).join('')||'<tr><td colspan="5">Nessun versamento registrato.</td></tr>'}</tbody></table></div>`;
     modal('Storico versamenti',html,`<button class="btn btn-secondary" data-action="close-modal">Chiudi</button>`,true);
   }
   async function financeCancelPayment(kind,id){
-    if(!isFinAdmin())return;
+    if(!isFinAdmin()||state.busy)return;
     const sheet=kind==='fee'?'PagamentiQuote':'PagamentiMovimenti';
     const payment=finRows(sheet).find(p=>p.id===id&&p.active);if(!payment)return;
     if(!window.confirm('Annullare questo versamento? Rimarrà nel foglio privato come riga disattivata.'))return;
+    const reason=window.prompt('Motivo dell’annullamento (facoltativo):','');if(reason===null)return;
     const link=kind==='fee'?payment.feeId:payment.movementId;
-    try{
-      await writeFin(sheet,[payment.id,link,payment.date,payment.amount,payment.method,payment.note,0],payment._row);
+    state.busy=true;try{
+      await writeFin(sheet,[payment.id,link,payment.date,payment.amount,payment.method,payment.note,0],payment._row,reason);
       closeModal();toast('Versamento annullato; saldi ricalcolati.');
-    }catch(err){toast('Non è stato possibile annullare il pagamento: '+safeError(err),true);}
+    }catch(err){toast('Non è stato possibile annullare il pagamento: '+safeError(err),true);}finally{state.busy=false;}
   }
   async function financeRemove(kind,id){
-    if(!isFinAdmin()||!['Movimenti','QuoteAtleti'].includes(kind))return;
+    if(!isFinAdmin()||state.busy||!['Movimenti','QuoteAtleti'].includes(kind))return;
     const item=finRows(kind).find(x=>x.id===id&&x.active);if(!item)return;
     const isFee=kind==='QuoteAtleti',paid=paymentTotal(isFee?'PagamentiQuote':'PagamentiMovimenti',isFee?'feeId':'movementId',id);
     if(cents(paid)>0){toast('Voce con versamenti registrati: non può essere annullata. Correggi prima i pagamenti nel foglio privato.',true);return;}
     if(!window.confirm('Annullare questa voce? Lo storico rimarrà nel foglio privato.'))return;
-    try{
+    const reason=window.prompt('Motivo dell’annullamento (facoltativo):','');if(reason===null)return;
+    state.busy=true;try{
       const values=isFee?[item.id,item.seasonId,item.playerId,item.description,item.amount,item.due,item.note,0]:[item.id,item.seasonId,item.date,item.description,item.category,item.type,item.unit,item.qty,item.due,item.note,item.documentUrl,0];
-      await writeFin(kind,values,item._row);toast('Voce annullata.');
-    }catch(err){toast('Annullamento non riuscito: '+safeError(err),true);}
+      await writeFin(kind,values,item._row,reason);toast('Voce annullata.');
+    }catch(err){toast('Annullamento non riuscito: '+safeError(err),true);}finally{state.busy=false;}
   }
 
   function renderSettings() {
     return intro('CONNESSIONE E DATI','Configurazione','Gestione del collegamento con il foglio Google e stato del progetto.')+banner()+
     `<div class="two-cards"><div class="panel"><div class="panel-heading"><h2 class="panel-title">🔐 Stato connessione</h2></div><div class="breakdown"><div><span>Versione applicazione</span><strong>${VERSION}</strong></div><div><span>Origine dati</span><strong>${state.source==='drive'?'Google Drive':'Demo locale'}</strong></div><div><span>Modalità</span><strong>${editor()?'Google OAuth attivo':'Sola consultazione'}</strong></div><div><span>Archivio</span><strong>${CFG.spreadsheetId?'Configurato':'Da configurare'}</strong></div></div><p class="notice">Le autorizzazioni di scrittura non sono affidate al sito GitHub: le controlla Google tramite i permessi del foglio.</p></div>
-      <div class="panel"><div class="panel-heading"><h2 class="panel-title">📂 Dove sono salvati i dati?</h2></div><p class="form-guide">Statistiche e stati pubblici si trovano nel foglio condiviso. Le scadenze mediche sono in un secondo Google Sheets privato, accessibile solo all’amministratore.</p><div class="breakdown">${SHEETS.map(s=>`<div><span>${esc(s)}</span><strong>Google Sheets</strong></div>`).join('')}</div>${CFG.spreadsheetId?`<p><a target="_blank" rel="noopener noreferrer" href="https://docs.google.com/spreadsheets/d/${encodeURIComponent(CFG.spreadsheetId)}/edit">Apri archivio Google Sheets ↗</a></p>`:''}</div></div>
+      <div class="panel"><div class="panel-heading"><h2 class="panel-title">📂 Dove sono salvati i dati?</h2></div><p class="form-guide">Statistiche e stati pubblici si trovano nel foglio condiviso. Dati Atleti, formazioni, contabilità e Analytics utilizzano documenti privati distinti.</p><div class="breakdown">${SHEETS.map(s=>`<div><span>${esc(s)}</span><strong>Google Sheets</strong></div>`).join('')}</div>${CFG.spreadsheetId?`<p><a target="_blank" rel="noopener noreferrer" href="https://docs.google.com/spreadsheets/d/${encodeURIComponent(CFG.spreadsheetId)}/edit">Apri archivio Google Sheets ↗</a></p>`:''}</div></div>
     <div class="panel mt-20"><div class="panel-heading"><h2 class="panel-title">🎨 Ruoli, stati e colori</h2></div><p class="form-guide">Personalizza ruoli e stati, compreso il colore di ciascuno. Il tipo Portiere resta un attributo dei ruoli. Le scelte sono memorizzate su Google Sheets e sono valide per tutti.</p><div class="intro-buttons"><button class="btn btn-secondary only-editor" data-action="manage-roles">Gestisci ruoli e colori</button><button class="btn btn-secondary only-editor" data-action="manage-states">Gestisci stati e colori</button></div><div class="catalog-overview">${availableRoles().map(x=>roleBadge(x.name)).join(' ')}${availableStates().map(x=>statusBadge(x.id)).join(' ')}</div></div>
-    <div class="panel mt-20"><div class="panel-heading"><h2 class="panel-title">🚀 Messa online</h2></div><div class="two-cards"><div class="info-step"><h3>1. Aggiorna il database esistente</h3><p>Solo se parti da una versione precedente alla v1.11 esegui <strong>aggiornaDatabaseV111</strong> in Apps Script: aggiunge le colonne per il ruolo partita e per distinguere gol fatti/subiti, preservando i dati. Da versioni precedenti alla v1.9 occorre prima aggiornare lo schema AutogolFavore.</p></div><div class="info-step"><h3>2. Proteggi l'accesso amministrativo</h3><p>Mantieni gli ID già funzionanti in <strong>config.js</strong> e aggiungi la proprietà <strong>adminEmail</strong> con la tua email Google. La cancellazione delle partite sarà disponibile soltanto dopo l'identificazione dell'account amministratore. Non condividere i permessi Editor del Google Sheet con altri utenti.</p></div><div class="info-step"><h3>3. Aggiorna alla v1.23</h3><p>Per la v1.23, esegui <strong>aggiornaDatabaseV123</strong> una sola volta dopo un backup del foglio, poi sostituisci <strong>index.html, app.js e styles.css</strong>. Il nuovo flag esclude la distinta dai totali senza modificare il Pregresso.</p></div><div class="info-step"><h3>4. Campionato storico 2025/26</h3><p>Seleziona 2025/26 → Campionato e collega i widget ufficiali del Girone B. I vecchi widget del Girone A sono esclusi. Per importare classifica e calendario in-app usa i pulsanti di importazione. Solo se vuoi registrare i risultati anche nelle partite interne della squadra, usa l’importazione CSV; i dati individuali storici non vengono modificati dai widget.</p></div></div><p class="notice mt-20">Per tutte le istruzioni operative, vedere il file LEGGIMI.md incluso nel progetto.</p></div>`;
+    <div class="panel mt-20"><div class="panel-heading"><h2 class="panel-title">🚀 Messa online</h2></div><div class="two-cards"><div class="info-step"><h3>1. Aggiorna il database esistente</h3><p>Solo se parti da una versione precedente alla v1.11 esegui <strong>aggiornaDatabaseV111</strong> in Apps Script: aggiunge le colonne per il ruolo partita e per distinguere gol fatti/subiti, preservando i dati. Da versioni precedenti alla v1.9 occorre prima aggiornare lo schema AutogolFavore.</p></div><div class="info-step"><h3>2. Proteggi l'accesso amministrativo</h3><p>Mantieni gli ID già funzionanti in <strong>config.js</strong> e aggiungi la proprietà <strong>adminEmail</strong> con la tua email Google. La cancellazione delle partite sarà disponibile soltanto dopo l'identificazione dell'account amministratore. Non condividere i permessi Editor del Google Sheet con altri utenti.</p></div><div class="info-step"><h3>3. Consolida la v1.41</h3><p>Esegui <strong>aggiornaDatabaseV141</strong>, imposta formationsSpreadsheetId, aggiorna il deployment Analytics e poi i file GitHub. Vedi LEGGIMI.md.</p></div><div class="info-step"><h3>4. Campionato storico 2025/26</h3><p>Seleziona 2025/26 → Campionato e collega i widget ufficiali del Girone B. I vecchi widget del Girone A sono esclusi. Per importare classifica e calendario in-app usa i pulsanti di importazione. Solo se vuoi registrare i risultati anche nelle partite interne della squadra, usa l’importazione CSV; i dati individuali storici non vengono modificati dai widget.</p></div></div><p class="notice mt-20">Per tutte le istruzioni operative, vedere il file LEGGIMI.md incluso nel progetto.</p></div>`;
   }
   function render() {
     if(!state.data.seasons.some(s=>s.id===state.seasonId)) state.seasonId=defaultSeason()?.id||'';
     if((state.view==='formation'||state.view==='athletes'||state.view==='analytics'||state.view==='finance')&&!canManageFormation())state.view='league';
     if(state.view==='settings'&&!editor())state.view='league';
     renderNav();
+    if(CFG.spreadsheetId&&state.source==='demo'){$('#main-content').innerHTML=`<section class="panel"><h2>${state.lastError?'Dati non disponibili':'Caricamento dati…'}</h2><p>${state.lastError?'Impossibile caricare il database. Premi Aggiorna per riprovare.':'Sincronizzazione del database Expats F.C.'}</p></section>`;return;}
     const content=({dashboard:renderDashboard,players:renderPlayers,matches:renderMatches,rankings:renderRankings,league:renderLeague,seasons:renderSeasons,formation:renderFormation,athletes:renderAthletes,analytics:renderAnalytics,finance:renderFinance,settings:renderSettings}[state.view]||renderDashboard)();
     $('#main-content').innerHTML=content;
   }
@@ -1387,6 +1514,7 @@
     if(!$('#confirm-match-deletion')?.checked){toast('Conferma la cancellazione della partita.',true);return;}
     if(state.busy||state.inlineSaving)return;
     try {await requireMatchAdmin();}catch(e){toast(safeError(e),true);return;}
+    state.formationCleanupWarning='';
     const old=state.data.matches.find(m=>m.id===matchId);
     if(!old){toast('Partita non trovata. Ricarica la pagina.',true);return;}
     const oldLines=state.data.lineups.filter(l=>l.matchId===matchId);
@@ -1401,17 +1529,14 @@
       if(!match || JSON.stringify({match,lineups:lines,goalEvents:goalRows})!==oldSignature)
         throw new Error('La partita o la distinta sono cambiate su Drive. Aggiorna la pagina e riprova.');
       const matchSheet=state.sheetIds.Partite,lineupSheet=state.sheetIds.Distinte;
-      const linked=fresh.matchFormations.find(f=>f.matchId===matchId);
       if(matchSheet===undefined||lineupSheet===undefined)throw new Error('Schede Partite/Distinte non trovate.');
       const rowDelete=(sheetId,row)=>({deleteDimension:{range:{sheetId,dimension:'ROWS',startIndex:row-1,endIndex:row}}});
       const requests=[...lines].sort((a,b)=>b._row-a._row).map(l=>rowDelete(lineupSheet,l._row));
-      if(linked)requests.push(rowDelete(state.sheetIds.FormazioniPartite,linked._row));
-      // Cancella tutte le formazioni archiviate collegate alla partita, non quelle stagionali.
-      for(const f of (fresh.formationsArchive||[]).filter(f=>f.matchId===matchId).sort((a,b)=>b._row-a._row))
-        requests.push(rowDelete(state.sheetIds.FormazioniArchivio,f._row));
       for(const g of goalRows.sort((a,b)=>b._row-a._row))requests.push(rowDelete(state.sheetIds.EventiGol,g._row));
       requests.push(rowDelete(matchSheet,match._row));
       await googleAPI(':batchUpdate',{method:'POST',body:JSON.stringify({requests})});
+      // I due documenti non condividono una transazione. Prima il risultato, poi il privato.
+      try{await removePrivateMatchFormations(matchId);}catch(err){console.warn('Pulizia formazioni private:',safeError(err));state.formationCleanupWarning='Partita eliminata; pulizia formazioni private da completare. Esegui expatsPulisciFormazioniOrfaneV141 in Apps Script.';}
       // Aggiorna anche lo stato locale in caso di errore temporaneo del reload.
       state.data.matches=state.data.matches.filter(m=>m.id!==matchId);
       state.data.lineups=state.data.lineups.filter(l=>l.matchId!==matchId);
@@ -1419,7 +1544,7 @@
       state.data.formationsArchive=(state.data.formationsArchive||[]).filter(f=>f.matchId!==matchId);
       state.data.goalEvents=(state.data.goalEvents||[]).filter(g=>g.matchId!==matchId);
     });
-    if(saved){if(state.formationMatchId===matchId){state.formationMatchId='';state.formationRecordId='';state.formationNew=false;state.formationDraft=null;}state.seasonId=old.seasonId;navigate('matches');toast('Partita e relativa distinta eliminate. Statistiche aggiornate.');}
+    if(saved){if(state.formationMatchId===matchId){state.formationMatchId='';state.formationRecordId='';state.formationNew=false;state.formationDraft=null;}state.seasonId=old.seasonId;navigate('matches');toast(state.formationCleanupWarning||'Partita e relativa distinta eliminate. Statistiche aggiornate.',!!state.formationCleanupWarning);}
   }
   function editMatchForm(matchId) { matchForm(matchId); }
   function baselineForm(playerId) {
@@ -1535,15 +1660,17 @@
     const res=await fetch(url,{...options,headers:{Authorization:`Bearer ${state.token}`,...(options.body?{'Content-Type':'application/json'}:{}),...(options.headers||{})}});
     const body=await res.json().catch(()=>({}));
     if(!res.ok) {
-      if(res.status===401){state.token='';state.accountEmail='';render();}
+      if(res.status===401){clearPrivateSession();render();}
       throw new Error(body.error?.message||`Errore Google Sheets HTTP ${res.status}`);
     }
     return body;
   }
   // Questo secondo spreadsheet NON è pubblicato e NON viene mai caricato via GViz.
   async function loadAthletePrivate(){
-    if(!canManageFormation() || !CFG.athletesSpreadsheetId)return;
+    if(!canManageFormation() || !CFG.athletesSpreadsheetId||CFG.athletesSpreadsheetId===CFG.spreadsheetId)return;
+    const token=state.token;
     const response=await googleAPI(`/values/${encodeURIComponent("'DatiAtleti'!A:E")}?valueRenderOption=UNFORMATTED_VALUE`,{spreadsheetId:CFG.athletesSpreadsheetId});
+    if(token!==state.token||!canManageFormation())return;
     const rows=response.values||[];
     if(rows[0]?.join('|')!=='StagioneID|GiocatoreID|ScadenzaCertificato|CSIRegolare|AggiornatoIl')throw new Error('Il foglio privato DatiAtleti non ha le intestazioni previste.');
     state.athleteRecords=rows.slice(1).map((r,i)=>({seasonId:String(r[0]||''),playerId:String(r[1]||''),expiry:padDate(r[2]),csi:one(r[3]),updatedAt:String(r[4]||''),_row:i+2})).filter(r=>r.seasonId&&r.playerId);
@@ -1558,7 +1685,7 @@
     return intro('SOLO AMMINISTRATORE','Dati Atleti','Scadenze certificati medici e tesseramento CSI per la stagione selezionata.')+info+
     `<div class="panel athlete-panel"><div class="panel-heading"><div><h2 class="panel-title">Idoneità e tesseramento · ${esc(activeSeason().name)}</h2><span class="panel-caption">Informazioni riservate: pubblicamente è mostrato soltanto lo stato automatico, non la data del certificato.</span></div></div>
     <div class="table-shell"><table class="data-table athlete-table"><thead><tr><th>Giocatore</th><th>Scadenza certificato</th><th>CSI regolare</th><th>Stato calcolato</th><th></th></tr></thead><tbody>
-    ${rows.map(p=>{const r=records.find(x=>x.seasonId===season&&x.playerId===p.id);const expired=r?.expiry&&r.expiry<athleteToday();const id=r?calculateAutomaticStatus(r):'';return `<tr class="athlete-row" data-athlete="${esc(p.id)}"><td><strong>${esc(name(p))}</strong><small>#${esc(p.number)}</small></td><td><input type="date" data-athlete-expiry class="form-control" value="${esc(r?.expiry||'')}" ${!configured||!state.athleteReady?'disabled':''} aria-label="Scadenza certificato ${esc(name(p))}"></td><td><label class="athlete-flag"><input type="checkbox" data-athlete-csi ${r?.csi?'checked':''} ${!configured||!state.athleteReady?'disabled':''}><span>${r?.csi?'Sì':'No'}</span></label></td><td>${r?(id?statusBadge(id):`<span class="chip ${!r.expiry?'neutral':'success'}">${r.expiry?'Regolare':'Cert. da verificare'}</span>`):'<span class="chip neutral">Non compilato</span>'}${expired?'<small>Certificato scaduto</small>':''}</td><td><button type="button" class="btn btn-primary btn-small" data-action="save-athlete" data-id="${esc(p.id)}" ${!configured||!state.athleteReady?'disabled':''}>Salva</button></td></tr>`}).join('')}</tbody></table></div><p class="notice">La scadenza è considerata valida fino al giorno indicato. Se è scaduta, prevale “Cert. Med. Scaduto”; altrimenti, se CSI non è regolare, compare “Non Tesserato”. Gli stati manuali rimangono memorizzati e tornano visibili quando la posizione è regolare. Le date non vengono pubblicate.</p></div>`;
+    ${rows.map(p=>{const r=records.find(x=>x.seasonId===season&&x.playerId===p.id);const expired=r?.expiry&&r.expiry<athleteToday();const id=r?calculateAutomaticStatus(r):'';return `<tr class="athlete-row" data-athlete="${esc(p.id)}"><td><strong>${esc(name(p))}</strong><small>#${esc(p.number)}</small></td><td><input type="date" data-athlete-expiry class="form-control" value="${esc(r?.expiry||'')}" ${!configured||!state.athleteReady?'disabled':''} aria-label="Scadenza certificato ${esc(name(p))}"></td><td><label class="athlete-flag"><input type="checkbox" data-athlete-csi ${r?.csi?'checked':''} ${!configured||!state.athleteReady?'disabled':''}><span>${r?.csi?'Sì':'No'}</span></label></td><td>${r?(id?statusBadge(id):`<span class="chip ${!r.expiry?'neutral':'success'}">${r.expiry?'Regolare':'Cert. da verificare'}</span>`):'<span class="chip neutral">Non compilato</span>'}${expired?'<small>Certificato scaduto</small>':''}</td><td><button type="button" class="btn btn-primary btn-small" data-action="save-athlete" data-id="${esc(p.id)}" ${!configured||!state.athleteReady?'disabled':''}>Salva</button></td></tr>`}).join('')}</tbody></table></div><p class="notice">La scadenza è considerata valida fino al giorno indicato. Se è scaduta, prevale “Cert. Med. Scaduto”; altrimenti, se CSI non è regolare, compare “Non Tesserato”. Se il CSI è regolare ma la data manca, compare “Cert. Med. Mancante”. Senza scheda nella stagione corrente compare “Non Verificato”. Gli stati manuali rimangono memorizzati e tornano visibili quando la posizione è regolare. Le date non vengono pubblicate.</p></div>`;
   }
   async function saveAthlete(playerId){
     if(!canManageFormation())throw new Error('Operazione riservata all’amministratore.');
@@ -1570,6 +1697,7 @@
     if(expiry&&!/^\d{4}-\d{2}-\d{2}$/.test(expiry))throw new Error('Data certificato non valida.');
     const csi=row.querySelector('[data-athlete-csi]').checked;
     const idStatus=calculateAutomaticStatus({expiry,csi});
+    if(csi&&!expiry&&!idStatus)throw new Error('Esegui la migrazione v1.41 per lo stato Cert. Med. Mancante.');
     if((expiry&&expiry<athleteToday()&&!athleteStatusId('medical'))||(!csi&&!athleteStatusId('csi')))throw new Error('Nella scheda Stati mancano “Cert. Med. Scaduto” oppure “Non Tesserato”.');
     const original=state.athleteRecords.find(r=>r.playerId===playerId&&r.seasonId===state.seasonId);
     const now=new Date().toISOString();
@@ -1586,11 +1714,46 @@
       await refreshData();toast('Dati atleta salvati. Stato della rosa aggiornato.');
     } finally {state.busy=false;if(saveButton?.isConnected)saveButton.disabled=false;}
   }
+  function decodeFormationArchive(fa){
+    const str=x=>String(x??'').trim();
+    return (fa||[]).map((r,i)=>{
+      let slots={};
+      try{
+        const obj=JSON.parse(str(r[5])||'{}');
+        if(obj&&typeof obj==='object'&&!Array.isArray(obj)){
+          slots=Object.fromEntries(Object.entries(obj).filter(([k,v])=>/^(?:GK|A1|D[1-3]|M[1-3]|B[1-5])$/.test(k)&&typeof v==='string'));
+          if(Array.isArray(obj._convocati))slots._convocati=[...new Set(obj._convocati.filter(id=>typeof id==='string'))];
+        }
+      }catch(_){/* Righe storiche malformate non interrompono la lettura */}
+      return {id:str(r[0]),seasonId:str(r[1]),matchId:str(r[2]),name:str(r[3])||'Formazione senza nome',module:str(r[4]),slots,updatedAt:str(r[6]),_row:i+2};
+    }).filter(x=>x.id&&x.seasonId);
+  }
+  async function readFormationArchive(){
+    if(!canManageFormation()||!CFG.formationsSpreadsheetId||CFG.formationsSpreadsheetId===CFG.spreadsheetId)throw new Error('Imposta formationsSpreadsheetId con un foglio distinto e privato.');
+    const r=await googleAPI(`/values/${encodeURIComponent("'FormazioniArchivio'!A:G")}?valueRenderOption=UNFORMATTED_VALUE`,{spreadsheetId:CFG.formationsSpreadsheetId});
+    if((r.values?.[0]||[]).join('|')!=='ID|StagioneID|PartitaID|Nome|Modulo|GiocatoriJSON|AggiornatoIl')throw new Error('Esegui aggiornaDatabaseV141().');
+    return decodeFormationArchive((r.values||[]).slice(1));
+  }
+  async function loadFormationPrivate(){
+    state.formationReady=false;state.formationError='';state.data.formationsArchive=[];
+    if(!canManageFormation())return;
+    const token=state.token;
+    try{const records=await readFormationArchive();if(token!==state.token||!canManageFormation())return;state.data.formationsArchive=records.filter(f=>!f.matchId||state.data.matches.some(m=>m.id===f.matchId&&m.seasonId===f.seasonId));state.formationReady=true;}
+    catch(err){state.formationError=safeError(err);}
+  }
+  async function removePrivateMatchFormations(matchId){
+    const records=await readFormationArchive();const linked=records.filter(f=>f.matchId===matchId);
+    if(!linked.length)return;
+    const meta=await googleAPI('?fields=sheets(properties(sheetId,title))',{spreadsheetId:CFG.formationsSpreadsheetId});
+    const sheetId=meta.sheets.find(s=>s.properties.title==='FormazioniArchivio').properties.sheetId;
+    const requests=linked.sort((a,b)=>b._row-a._row).map(f=>({deleteDimension:{range:{sheetId,dimension:'ROWS',startIndex:f._row-1,endIndex:f._row}}}));
+    await googleAPI(':batchUpdate',{spreadsheetId:CFG.formationsSpreadsheetId,method:'POST',body:JSON.stringify({requests})});
+  }
   async function loadPrivate() {
-    const query=new URLSearchParams();SHEETS.forEach(s=>query.append('ranges',sheetRange(s)));
+    const query=new URLSearchParams();PUBLIC_SHEETS.forEach(s=>query.append('ranges',sheetRange(s)));
     query.set('valueRenderOption','UNFORMATTED_VALUE');
     const response=await googleAPI('/values:batchGet?'+query.toString());
-    const ranges=response.valueRanges||[];
+    const ranges=SHEETS.map(s=>FORMATION_SHEETS.has(s)?{values:[]}:response.valueRanges?.[PUBLIC_SHEETS.indexOf(s)]||{values:[]});
     const expected=[
       [3,9,['RuoloPartita','GolFatti','GolSubiti']],
       [4,8,['GolFatti','GolSubiti']]
@@ -1599,18 +1762,23 @@
     expected.push([8,0,['StagioneID','ImportID','Squadra','PG','V','N','P','GF','GS','Punti']]);
     expected.push([9,0,['StagioneID','ImportID','Giornata','Data','Casa','Trasferta','GolCasa','GolTrasferta']]);
     expected.push([10,0,['StagioneID','Tipo','URL','AggiornatoIl']]);
-    expected.push([11,0,['StagioneID','Modulo','GiocatoriJSON','AggiornatoIl']]);
-    expected.push([12,0,['PartitaID','StagioneID','Modulo','GiocatoriJSON','AggiornatoIl']]);
     expected.push([13,0,['ID','PartitaID','Ordine','MarcatoreID','AssistID','Tipo']]);
     expected.push([14,0,['StagioneID','GiocatoreID','StatoAutomatico','AggiornatoIl']]);
-    expected.push([15,0,['ID','StagioneID','PartitaID','Nome','Modulo','GiocatoriJSON','AggiornatoIl']]);
+    expected.push([7,4,['Convocabile']]);
     state.schemaReady=expected.every(([index,start,columns])=>columns.every((v,i)=>String(ranges[index]?.values?.[0]?.[start+i]||'').trim()===v));
-    if(!state.schemaReady)throw new Error('Il database richiede la migrazione v1.38: esegui aggiornaDatabaseV138 in Apps Script.');
+    if(!state.schemaReady)throw new Error('Il database richiede la migrazione v1.41: esegui aggiornaDatabaseV141 in Apps Script.');
     return decodeSheets(ranges.map(x=>(x.values||[]).slice(1)));
   }
-  async function loadPublic() {
-    const tables=await Promise.all(SHEETS.map((sheet,i)=>(sheet==='Formazioni'||sheet==='FormazioniPartite'||sheet==='FormazioniArchivio')?Promise.resolve([]):i<8?gvizSheet(sheet):gvizSheet(sheet).catch(()=>[])));
-    return decodeSheets(tables);
+  const publicCache=new Map();
+  async function loadPublic(){
+    const result=await Promise.allSettled(PUBLIC_SHEETS.map(s=>gvizSheet(s)));
+    const failed=PUBLIC_SHEETS.filter((s,i)=>result[i].status==='rejected');
+    const required=['Giocatori','Stagioni','Partite','Distinte','Pregresso','Tesseramenti','Ruoli','Stati','EventiGol','IdoneitaRosa'];
+    // Evita di combinare metà statistiche nuove con metà statistiche vecchie.
+    if(failed.some(s=>required.includes(s)))throw new Error('Dati sportivi non aggiornati: '+failed.join(', '));
+    PUBLIC_SHEETS.forEach((s,i)=>{if(result[i].status==='fulfilled')publicCache.set(s,result[i].value);});
+    state.publicWarnings=failed;
+    return decodeSheets(SHEETS.map(s=>FORMATION_SHEETS.has(s)?[]:publicCache.get(s)||[]));
   }
   function decodeSheets(arrays) {
     const [p,s,m,l,b,t,rr,ss,cc,cp,cw,ff,fm,eg,ee,fa]=arrays;
@@ -1624,24 +1792,14 @@
     const baseline=(b||[]).map((r,i)=>({seasonId:str(r[0]),playerId:str(r[1]),called:positiveInt(r[2]),played:positiveInt(r[3]),goals:Math.trunc(num(r[4])),assists:positiveInt(r[5]),yellow:positiveInt(r[6]),red:positiveInt(r[7]),goalsFor:r[8]!==''&&r[8]!=null?positiveInt(r[8]):null,goalsConceded:r[9]!==''&&r[9]!=null?positiveInt(r[9]):null,_row:i+2})).filter(x=>x.playerId);
     const memberships=(t||[]).map((r,i)=>({seasonId:str(r[0]),playerId:str(r[1]),inRoster:one(r[2]),number:r.length>3?num(r[3]):null,role:r.length>4?str(r[4]):null,status:r.length>5?(str(r[5])||'ATTIVO'):null,keeperNumber:r[6]!==''&&r[6]!=null?positiveInt(r[6]):null,_row:i+2})).filter(x=>x.playerId);
     const roles=(rr||[]).map((r,i)=>({id:str(r[0]),name:str(r[1]),type:str(r[2])==='PORTIERE'?'PORTIERE':'MOVIMENTO',active:one(r[3]),color:safeColor(str(r[4])||rolePalette[i%rolePalette.length]),_row:i+2})).filter(x=>x.id);
-    const states=(ss||[]).map((r,i)=>({id:str(r[0]),name:str(r[1]),color:safeColor(str(r[2])),active:one(r[3]),_row:i+2})).filter(x=>x.id);
+    const states=(ss||[]).map((r,i)=>({id:str(r[0]),name:str(r[1]),color:safeColor(str(r[2])),active:one(r[3]),callable:(r[4]===undefined||r[4]===''||r[4]===null)?defaultCallable(str(r[1])):one(r[4]),_row:i+2})).filter(x=>x.id);
     const leagueStandings=(cc||[]).map((r,i)=>({seasonId:str(r[0]),batch:str(r[1]),team:str(r[2]),pg:positiveInt(r[3]),win:positiveInt(r[4]),draw:positiveInt(r[5]),loss:positiveInt(r[6]),gf:positiveInt(r[7]),ga:positiveInt(r[8]),pts:num(r[9]),_row:i+2})).filter(x=>x.seasonId&&x.team&&x.batch);
     const leagueFixtures=(cp||[]).map((r,i)=>({seasonId:str(r[0]),batch:str(r[1]),round:str(r[2]),date:padDate(r[3]),home:str(r[4]),away:str(r[5]),hg:r[6]===''||r[6]==null?null:positiveInt(r[6]),ag:r[7]===''||r[7]==null?null:positiveInt(r[7]),_row:i+2})).filter(x=>x.seasonId&&x.home&&x.away&&x.batch);
     const leagueWidgets=(cw||[]).map((r,i)=>({seasonId:str(r[0]),type:str(r[1]),url:str(r[2]),updatedAt:str(r[3]),_row:i+2})).filter(x=>x.seasonId&&LEAGUE_WIDGET_TYPES.includes(x.type));
     const formations=(ff||[]).map((r,i)=>{let slots={};try{const obj=JSON.parse(str(r[2])||'{}');if(obj && !Array.isArray(obj) && typeof obj==='object')slots=Object.fromEntries(Object.entries(obj).filter(([key,val])=>/^(?:GK|A1|D[1-3]|M[1-3]|B[1-5])$/.test(key)&&typeof val==='string'));if(Array.isArray(obj._convocati))slots._convocati=[...new Set(obj._convocati.filter(id=>typeof id==='string'))];}catch(_){/* record incompleto */}return {seasonId:str(r[0]),module:str(r[1]),slots,updatedAt:str(r[3]),_row:i+2};}).filter(x=>x.seasonId);
     const matchFormations=(fm||[]).map((r,i)=>{let slots={};try{const obj=JSON.parse(str(r[3])||'{}');if(obj&&typeof obj==='object'&&!Array.isArray(obj))slots=Object.fromEntries(Object.entries(obj).filter(([k,v])=>/^(?:GK|A1|D[1-3]|M[1-3]|B[1-5])$/.test(k)&&typeof v==='string'));if(Array.isArray(obj._convocati))slots._convocati=[...new Set(obj._convocati.filter(id=>typeof id==='string'))];}catch(_){}return {matchId:str(r[0]),seasonId:str(r[1]),module:str(r[2]),slots,updatedAt:str(r[4]),_row:i+2};}).filter(x=>x.matchId);
     // Formazioni v1.38: record separati con ID e nome, inclusi i legacy migrati.
-    const formationsArchive=(fa||[]).map((r,i)=>{
-      let slots={};
-      try{
-        const obj=JSON.parse(str(r[5])||'{}');
-        if(obj&&typeof obj==='object'&&!Array.isArray(obj)){
-          slots=Object.fromEntries(Object.entries(obj).filter(([k,v])=>/^(?:GK|A1|D[1-3]|M[1-3]|B[1-5])$/.test(k)&&typeof v==='string'));
-          if(Array.isArray(obj._convocati))slots._convocati=[...new Set(obj._convocati.filter(id=>typeof id==='string'))];
-        }
-      }catch(_){/* Righe storiche malformate non interrompono la lettura */}
-      return {id:str(r[0]),seasonId:str(r[1]),matchId:str(r[2]),name:str(r[3])||'Formazione senza nome',module:str(r[4]),slots,updatedAt:str(r[6]),_row:i+2};
-    }).filter(x=>x.id&&x.seasonId);
+    const formationsArchive=decodeFormationArchive(fa);
     const goalEvents=(eg||[]).map((r,i)=>({id:str(r[0]),matchId:str(r[1]),ordinal:positiveInt(r[2]),scorerId:str(r[3]),assistId:str(r[4]),type:str(r[5])||'GOL',_row:i+2})).filter(x=>x.id&&x.matchId).sort((a,b)=>a.ordinal-b.ordinal);
     const eligibility=(ee||[]).map((r,i)=>({seasonId:str(r[0]),playerId:str(r[1]),status:str(r[2]),updatedAt:str(r[3]),_row:i+2})).filter(r=>r.seasonId&&r.playerId);
     return {players,seasons,matches,lineups,goalEvents,eligibility,baseline,memberships,leagueStandings,leagueFixtures,leagueWidgets,formations,matchFormations,formationsArchive,roles:roles.length?roles:structuredClone(legacyRoles),states:states.length?states:structuredClone(legacyStates)};
@@ -1650,22 +1808,33 @@
     if(!CFG.spreadsheetId) {state.source='demo';render();return;}
     $('#refresh-btn').disabled=true;
     try {
+      const token=state.token;
       const data=editor()?await loadPrivate():await loadPublic();
-      state.data=data;state.source='drive';state.lastError='';
+      if(token)state.publicWarnings=[];
+      if(token!==state.token)return;
+      const firstSynced=state.source!=='drive';
+      state.data=data;state.source='drive';state.lastError='';state.lastSync=new Date().toISOString();
+      if(canManageFormation())await loadFormationPrivate();else {state.formationReady=false;state.formationError='';}
       if(canManageFormation() && CFG.athletesSpreadsheetId){
         try{await loadAthletePrivate();}catch(error){state.athleteRecords=[];state.athleteReady=false;state.athleteError=safeError(error);}
       }else{state.athleteRecords=[];state.athleteReady=false;state.athleteError='';}
       if(!data.seasons.some(s=>s.id===state.seasonId))state.seasonId=(data.seasons.find(s=>/2026\s*\/\s*(?:27|2027)/i.test(s.name))||data.seasons[0]).id;
-      render();
+      render();if(firstSynced)analyticsTrackPage();
     } catch (error) {
       state.lastError=safeError(error);
       // Se erano disponibili dati precedenti da Drive, mantienili senza sostituirli con la demo.
       toast('Errore sincronizzazione: '+state.lastError,true);render();
     } finally{$('#refresh-btn').disabled=false;}
   }
+  function clearPrivateSession(){
+    state.token='';state.accountEmail='';state.sheetIds={};state.schemaReady=false;
+    state.formationReady=false;state.formationError='';state.formationCleanupWarning='';state.data.formationsArchive=[];state.data.formations=[];state.data.matchFormations=[];
+    state.athleteRecords=[];state.athleteReady=false;state.athleteError='';state.analyticsRows=null;state.analyticsError='';state.formationDraft=null;state.formationRecordId='';state.formationNew=false;
+    state.finance=null;state.financeRaw=null;state.financeReady=false;state.financeError='';closeModal();
+  }
   async function auth() {
     if(editor()) {
-      const token=state.token;state.token='';state.accountEmail='';state.sheetIds={};state.schemaReady=false;state.analyticsRows=null;state.analyticsError='';state.formationDraft=null;state.formationRecordId='';state.formationNew=false;state.finance=null;state.financeReady=false;state.financeError='';
+      const token=state.token;clearPrivateSession();
       // Nascondi immediatamente tutte le schermate private, anche se la rete è lenta.
       render();
       try{window.google?.accounts.oauth2.revoke(token,()=>{});}catch(_){}
@@ -1677,13 +1846,14 @@
       if(response.error||!response.access_token){toast('Accesso Google non riuscito.',true);return;}
       state.token=response.access_token;state.accountEmail='';
       try {
-        state.accountEmail=await verifyGoogleIdentity().catch(()=> '');
+        state.accountEmail=await verifyGoogleIdentity();
+        if(state.accountEmail!==adminEmail())throw new Error('Accesso amministrativo riservato all’account configurato. I dati pubblici restano disponibili senza login.');
         const meta=await googleAPI('?fields=sheets(properties(sheetId,title))');
         state.sheetIds=Object.fromEntries((meta.sheets||[]).map(s=>[s.properties.title,s.properties.sheetId]));
-        if(SHEETS.some(n=>state.sheetIds[n]===undefined))throw new Error('Database Google Sheets non inizializzato: mancano alcune schede.');
+        if(PUBLIC_SHEETS.some(n=>state.sheetIds[n]===undefined))throw new Error('Database Google Sheets non inizializzato: mancano alcune schede.');
         state.view='league';state.leagueTab='calendario';
         await refreshData();toast('Google connesso. La scrittura è consentita solo a chi ha permessi sul foglio.');
-      } catch(error){state.token='';state.accountEmail='';toast(safeError(error),true);render();}
+      } catch(error){clearPrivateSession();toast(safeError(error),true);render();}
     }});
     client.requestAccessToken({prompt:'select_account'});
   }
@@ -1697,7 +1867,7 @@
     return googleAPI(':batchUpdate',{method:'POST',body:JSON.stringify({requests})});
   }
   async function writeAtomic(ops) {
-    if(!state.schemaReady)throw new Error('Aggiorna lo schema Google Sheets alla v1.38 eseguendo aggiornaDatabaseV138.');
+    if(!state.schemaReady)throw new Error('Aggiorna lo schema Google Sheets alla v1.41 eseguendo aggiornaDatabaseV141.');
     const requests=ops.filter(op=>op.rows?.length).map(op=>{
       const sheetId=state.sheetIds[op.sheet];
       if(sheetId===undefined)throw new Error('Scheda '+op.sheet+' mancante. Esegui aggiornaDatabaseV130 in Apps Script.');
@@ -1775,13 +1945,13 @@
   function catalogModal(kind) {
     if(!editor())return;
     const roles=kind==='roles';const items=(roles?state.data.roles:state.data.states).filter(x=>x.active);
-    const body=`<p class="modal-explainer">${roles?'Aggiungi, rinomina o disattiva i ruoli e scegli il loro colore. Il tipo PORTIERE determina i gol negativi.':'Aggiungi, rinomina o disattiva gli stati e scegli liberamente il colore.'} Non è possibile eliminare una voce assegnata a un giocatore.</p><div class="catalog-list">${items.map(x=>`<div class="catalog-entry"><div>${roles?`${roleBadge(x.name)}<small>${x.type==='PORTIERE'?'Portiere':'Giocatore di movimento'} · ${esc(x.color||'#488fcf')}</small>`:`${statusBadge(x.id)} <small>${esc(x.color)}</small>`}</div><div><button class="btn btn-secondary btn-small" data-action="catalog-edit" data-kind="${kind}" data-id="${esc(x.id)}">Modifica</button><button class="btn btn-danger btn-small" data-action="catalog-delete" data-kind="${kind}" data-id="${esc(x.id)}">Rimuovi</button></div></div>`).join('')}</div>`;
+    const body=`<p class="modal-explainer">${roles?'Aggiungi, rinomina o disattiva i ruoli e scegli il loro colore. Il tipo PORTIERE determina i gol negativi.':'Aggiungi, rinomina o disattiva gli stati e scegli liberamente il colore.'} Non è possibile eliminare una voce assegnata a un giocatore.</p><div class="catalog-list">${items.map(x=>`<div class="catalog-entry"><div>${roles?`${roleBadge(x.name)}<small>${x.type==='PORTIERE'?'Portiere':'Giocatore di movimento'} · ${esc(x.color||'#488fcf')}</small>`:`${statusBadge(x.id)} <small>${esc(x.color)} · ${x.callable??defaultCallable(x.name)?'Convocabile':'Non convocabile'}</small>`}</div><div><button class="btn btn-secondary btn-small" data-action="catalog-edit" data-kind="${kind}" data-id="${esc(x.id)}">Modifica</button><button class="btn btn-danger btn-small" data-action="catalog-delete" data-kind="${kind}" data-id="${esc(x.id)}">Rimuovi</button></div></div>`).join('')}</div>`;
     modal(roles?'Gestione ruoli e colori':'Gestione stati e colori',body,`<button class="btn btn-secondary" data-action="close-modal">Chiudi</button><button class="btn btn-primary" data-action="catalog-edit" data-kind="${kind}">＋ Aggiungi</button>`);
   }
   function catalogItemForm(kind,id='') {
     if(!editor())return;
     const roles=kind==='roles';const item=(roles?state.data.roles:state.data.states).find(x=>x.id===id);
-    const body=`<form id="catalog-form"><div class="field-grid"><div class="field full"><label>Nome ${roles?'ruolo':'stato'} *</label><input class="form-control" name="name" required maxlength="45" value="${esc(item?.name||'')}"></div>${roles?`<div class="field full"><label>Tipo statistico</label><select name="type" class="form-control"><option value="MOVIMENTO" ${item?.type!=='PORTIERE'?'selected':''}>Giocatore di movimento</option><option value="PORTIERE" ${item?.type==='PORTIERE'?'selected':''}>Portiere (gol subiti negativi)</option></select><small>Cambiare il tipo dei ruoli già assegnati può rendere incompatibili i gol storici.</small></div><div class="field full"><label>Colore ruolo</label><input type="color" name="color" class="status-color-input" value="${safeColor(item?.color||'#488fcf')}"></div>`:`<div class="field full"><label>Colore stato</label><input type="color" name="color" class="status-color-input" value="${safeColor(item?.color||'#488fcf')}"></div>`}</div></form>`;
+    const body=`<form id="catalog-form"><div class="field-grid"><div class="field full"><label>Nome ${roles?'ruolo':'stato'} *</label><input class="form-control" name="name" required maxlength="45" value="${esc(item?.name||'')}"></div>${roles?`<div class="field full"><label>Tipo statistico</label><select name="type" class="form-control"><option value="MOVIMENTO" ${item?.type!=='PORTIERE'?'selected':''}>Giocatore di movimento</option><option value="PORTIERE" ${item?.type==='PORTIERE'?'selected':''}>Portiere (gol subiti negativi)</option></select><small>Cambiare il tipo dei ruoli già assegnati può rendere incompatibili i gol storici.</small></div><div class="field full"><label>Colore ruolo</label><input type="color" name="color" class="status-color-input" value="${safeColor(item?.color||'#488fcf')}"></div>`:`<div class="field full"><label>Colore stato</label><input type="color" name="color" class="status-color-input" value="${safeColor(item?.color||'#488fcf')}"></div><div class="field full"><label><input type="checkbox" name="callable" value="1" ${item?(item.callable??defaultCallable(item.name)?'checked':''):''}> Convocabile</label><small>Determina inclusione nel conteggio e in Seleziona tutti.</small></div>`}</div></form>`;
     modal(item?'Modifica '+(roles?'ruolo':'stato'):'Nuovo '+(roles?'ruolo':'stato'),body,`<button class="btn btn-secondary" data-action="${roles?'manage-roles':'manage-states'}">Indietro</button><button class="btn btn-primary" data-action="catalog-save" data-kind="${kind}" data-id="${esc(id)}">Salva</button>`);
   }
   async function saveCatalog(kind,id='') {
@@ -1797,7 +1967,8 @@
       toast('Impossibile cambiare il tipo: esistono gol storici riferiti al ruolo in una stagione.',true);return;
     }
     const itemId=old?.id||uid(role?'role':'status');
-    const op={sheet:role?'Ruoli':'Stati',...(old?{row:old._row}:{}),rows:[role?[itemId,nameNew,v.type,1,safeColor(v.color)]:[itemId,nameNew,safeColor(v.color),1]]};
+    if(!role&&old&&['medical','csi','missing','unverified'].some(k=>athleteStatusId(k)===old.id)&&(nameNew!==old.name||v.callable)){toast('Gli stati automatici di idoneità non possono essere rinominati o resi convocabili.',true);return;}
+    const op={sheet:role?'Ruoli':'Stati',...(old?{row:old._row}:{}),rows:[role?[itemId,nameNew,v.type,1,safeColor(v.color)]:[itemId,nameNew,safeColor(v.color),1,v.callable?1:0]]};
     const ops=[op];
     if(role&&old&&old.name!==nameNew){
       for(const r of affectedReg)ops.push({sheet:'Tesseramenti',row:r._row,rows:[registrationValues(r.seasonId,r.playerId,r.inRoster,r.number,rolesValue(rolesOf(r.role).map(n=>n===old.name?nameNew:n)),r.status,r.keeperNumber)]});
@@ -1809,9 +1980,10 @@
     if(!editor())return;
     const role=kind==='roles';const item=(role?state.data.roles:state.data.states).find(x=>x.id===id);
     if(!item)return;
+    if(!role&&['medical','csi','missing','unverified'].some(k=>athleteStatusId(k)===id)){toast('Stato automatico necessario a Dati Atleti.',true);return;}
     if(state.data.memberships.some(m=>role?includesRole(m.role,item.name):m.status===item.id)||state.data.players.some(p=>role?includesRole(p.role,item.name):p.status===item.id)){toast('Voce usata in una o più stagioni: riassegnala prima di rimuoverla.',true);return;}
     if(!confirm(`Rimuovere ${item.name} dall’elenco delle opzioni?`))return;
-    const row=role?[item.id,item.name,item.type,0,safeColor(item.color)]:[item.id,item.name,item.color,0];
+    const row=role?[item.id,item.name,item.type,0,safeColor(item.color)]:[item.id,item.name,item.color,0,item.callable?1:0];
     const ok=await withBusy(()=>writeAtomic([{sheet:role?'Ruoli':'Stati',row:item._row,rows:[row]}]));if(ok)catalogModal(kind);
   }
   async function setRosterMembership(playerId,add) {
@@ -2122,6 +2294,7 @@
     const action=btn.dataset.action;
     if(action==='close-modal')closeModal();
     else if(action==='analytics-privacy')analyticsPrivacyDialog();
+    else if(action==='formation-refresh'){loadFormationPrivate().then(render);}
     else if(action==='finance-tab'){state.financeTab=btn.dataset.tab||'movimenti';render();}
     else if(action==='finance-refresh')loadFinancePrivate();
     else if(action==='finance-export')financeExport();
