@@ -10,4 +10,5 @@ window.EXPATS_CONFIG = Object.freeze({
   analyticsSpreadsheetId: '1FOQA6RcB3WLdbVXKBKlah-RFRmW6Boq-9_xaxrcCzTA',
   analyticsWebAppUrl: 'https://script.google.com/macros/s/AKfycbwfv_S-Z_S8VS6CrmYmsCWYAs6qB62RLXtKDERCI_xEBunSbANTNihc_49iiuxFD7mC/exec',
   financeSpreadsheetId: '1g1urxu0LXFu0zcUyCLHnV359kEobQrnZOsIeJKPCYqc',
+  formationsSpreadsheetId: '1U8d2ZHhtSVxf6-Mk8U6NBTKMxdRrneHj9wJIbWaWIMc',
 });
