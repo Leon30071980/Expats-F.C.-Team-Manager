@@ -1,4 +1,4 @@
-/* EXPATS F.C. TEAM MANAGER — v1.41
+/* EXPATS F.C. TEAM MANAGER — v1.42
  * Frontend statico GitHub Pages + Google Sheets API (edit via OAuth) + GViz JSONP (pubblico).
  * Il controllo delle modifiche dipende dai permessi Google Drive sul foglio.
  */
@@ -6,14 +6,14 @@
   'use strict';
   const CFG = window.EXPATS_CONFIG;
   const SHEETS = ['Giocatori','Stagioni','Partite','Distinte','Pregresso','Tesseramenti','Ruoli','Stati','CampionatoClassifica','CampionatoPartite','CampionatoWidget','Formazioni','FormazioniPartite','EventiGol','IdoneitaRosa','FormazioniArchivio'];
-  const VERSION='v1.41';
+  const VERSION='v1.42';
   const FORMATION_SHEETS=new Set(['Formazioni','FormazioniPartite','FormazioniArchivio']);
   const PUBLIC_SHEETS=SHEETS.filter(s=>!FORMATION_SHEETS.has(s));
   const defaultCallable=label=>!/infortun|assen|ritirat|squalificat|sospes|cert.*med.*(?:scadut|mancant)|non.*tesserat|non.*verificat/i.test(String(label||'').normalize('NFD').replace(/[\u0300-\u036f]/g,''));
   const currentEligibilitySeason=sid=>{const season=state.data.seasons.find(s=>s.id===sid);return !!season && (!season.end||padDate(season.end)>=athleteToday());};
   const state = {
     data: structuredClone(window.EXPATS_DEMO),
-    source: 'demo', view: 'league', seasonId: '', rosterScope: 'season',
+    source: 'demo', view: 'league', seasonId: '', rankingsAll: false, rosterScope: 'season',
     sort: {key:'number',dir:1}, search:'', filter:'TUTTI', leagueTab:'calendario',
     token: '', accountEmail:'', sheetIds: {}, schemaReady:false, busy: false, inlineSaving:false, lastError: '', formationDraft:null, formationMatchId:'', formationRecordId:'', formationNew:false, formationPickerSlot:null, athleteRecords:[],athleteError:'',athleteReady:false, analyticsRows:null,analyticsError:'',analyticsDays:30,analyticsLoading:false, finance:null,financeReady:false,financeError:'',financeLoading:false,financeTab:'movimenti', formationReady:false,formationError:'', lastSync:'',publicWarnings:[]
   };
@@ -278,6 +278,31 @@
     for(const s of map.values())s.goals=s.goalsFor-s.goalsConceded;
     return [...map.values()];
   }
+
+  // v1.42 — totalizza le statistiche già calcolate per ogni stagione.
+  // Identità per nome e cognome (non per ID), ignorando maiuscole e spazi superflui.
+  const allStatsNamePart=value=>String(value??'').normalize('NFKC').trim().replace(/\s+/gu,' ').toLocaleLowerCase('it');
+  function statsForAllSeasons(){
+    const groups=new Map();
+    const totals=['called','played','goalsFor','goalsConceded','assists','yellow','red'];
+    for(const season of orderedSeasons()){
+      for(const p of statsForSeason(season.id)){
+        if(!isMember(p.id,season.id)&&!totals.some(k=>num(p[k])!==0))continue;
+        const first=allStatsNamePart(p.firstName),last=allStatsNamePart(p.lastName);
+        const identity=first&&last?JSON.stringify([first,last]):JSON.stringify(['id',p.id]);
+        let row=groups.get(identity);
+        if(!row){
+          row={...p,goals:0,seasonIds:new Set()};
+          for(const k of totals)row[k]=0;
+          groups.set(identity,row);
+        }
+        for(const k of totals)row[k]+=num(p[k]);
+        row.goals=row.goalsFor-row.goalsConceded;
+        row.seasonIds.add(season.id);
+      }
+    }
+    return [...groups.values()].map(({seasonIds,...p})=>({...p,careerSeasons:seasonIds.size}));
+  }
   const byKey = (items,key) => [...items].sort((a,b) => num(b[key])-num(a[key]) || name(a).localeCompare(name(b),'it'));
   function seasonTotals(id) {
     const st=statsForSeason(id);const matches=seasonMatches(id);
@@ -315,7 +340,7 @@
   }
   function intro(kicker,title,desc,actions='') {
     // Selettore ben visibile in ogni pagina; la barra superiore rimane dedicata al login.
-    const seasonChoice=`<label class="page-season" for="season-select"><span class="page-season-label">◷ STAGIONE</span><select id="season-select" aria-label="Seleziona la stagione visualizzata">${state.data.seasons.map(s=>`<option value="${esc(s.id)}" ${s.id===state.seasonId?'selected':''}>${esc(s.name)}</option>`).join('')}</select></label>`;
+    const seasonChoice=`<label class="page-season" for="season-select"><span class="page-season-label">◷ STAGIONE</span><select id="season-select" aria-label="Seleziona la stagione visualizzata">${state.view==='rankings'?`<option value="__all__" ${state.rankingsAll?'selected':''}>TUTTE</option>`:''}${state.data.seasons.map(s=>`<option value="${esc(s.id)}" ${s.id===state.seasonId&&!(state.view==='rankings'&&state.rankingsAll)?'selected':''}>${esc(s.name)}</option>`).join('')}</select></label>`;
     return `<div class="page-intro"><div class="page-intro-copy"><div class="eyebrow">${esc(kicker)}</div><h1 class="page-title">${esc(title)}</h1><p class="page-subtitle">${esc(desc)}</p></div><div class="intro-season-center">${seasonChoice}</div><div class="intro-tools">${actions?`<div class="intro-buttons">${actions}</div>`:''}</div></div>`;
   }
   const newMatchButton = () => `<button class="btn btn-primary only-editor" data-action="new-match">＋ Registra partita</button>`;
@@ -336,10 +361,10 @@
       <div class="panel-grid mt-20"><div class="panel"><div class="panel-heading"><div><h2 class="panel-title">🏟 Ultime partite</h2><span class="panel-caption">Risultati delle partite registrate</span></div><button class="link-btn" data-nav="matches">Tutte le partite →</button></div>${matches.length?matches.slice(-5).reverse().map(matchLine).join(''):empty('📅','Nessuna partita registrata','Puoi conservare le statistiche pregresse e inserire da oggi le nuove partite.')}</div>
       <div class="panel"><div class="panel-heading"><div><h2 class="panel-title">📈 Bilancio stagionale</h2><span class="panel-caption">Solo partite con risultato archiviato</span></div></div><div class="breakdown"><div><span>Vittorie</span><strong class="accent-green">${t.win}</strong></div><div><span>Pareggi</span><strong class="accent-yellow">${t.draw}</strong></div><div><span>Sconfitte</span><strong class="accent-red">${t.loss}</strong></div><div><span>Gol risultanti dai punteggi / subiti</span><strong>${matches.reduce((sum,m)=>sum+positiveInt(m.goalsFor),0)} / ${t.conceded}</strong></div></div><p class="notice">I gol segnati della panoramica provengono dalle statistiche individuali e dagli autogol a favore; i gol subiti provengono dai risultati. Se mancano partite o marcatori nello storico, i totali possono differire.</p></div></div>`;
   }
-  function bars(items,key,blue=false) {
+  function bars(items,key,blue=false,career=false) {
     if(!items.length) return empty('📊','Nessun dato per questa classifica');
     const max=Math.max(1,...items.map(p=>p[key]));
-    return `<div class="bars-list">${items.map((p,i)=>`<div class="bar-row"><span class="bar-rank ${i===0?'first':''}">${String(i+1).padStart(2,'0')}</span><span class="bar-person">${esc(name(p))}<small>#${esc(p.number)} · ${esc(rolesText(p.role))}</small></span><div class="bar-track"><div class="bar-fill ${blue?'blue':''}" style="width:${Math.round(100*p[key]/max)}%"></div></div><span class="bar-value">${p[key]}</span></div>`).join('')}</div>`;
+    return `<div class="bars-list">${items.map((p,i)=>`<div class="bar-row"><span class="bar-rank ${i===0?'first':''}">${String(i+1).padStart(2,'0')}</span><span class="bar-person">${esc(name(p))}<small>${career?`${p.careerSeasons} ${p.careerSeasons===1?'stagione':'stagioni'}`:`#${esc(p.number)} · ${esc(rolesText(p.role))}`}</small></span><div class="bar-track"><div class="bar-fill ${blue?'blue':''}" style="width:${Math.round(100*p[key]/max)}%"></div></div><span class="bar-value">${p[key]}</span></div>`).join('')}</div>`;
   }
   function playerRows() {
     const list=statsForSeason(activeSeason().id).filter(p=>{
@@ -428,9 +453,9 @@
       <div class="panel"><div class="panel-heading"><h2 class="panel-title">Elenco incontri</h2><span class="panel-caption">${matches.length} partite · ordine cronologico (dalla più vecchia)</span></div>${matches.length?matches.map(matchLine).join(''):empty('⚽','Non sono ancora state registrate partite','Le nuove partite incrementeranno automaticamente presenze, convocazioni e statistiche.')}</div>`;
   }
   function renderRankings() {
-    const s=activeSeason(), st=statsForSeason(s.id);
+    const s=activeSeason(), all=state.rankingsAll, st=all?statsForAllSeasons():statsForSeason(s.id);
     const sections=[['⚽ Marcatori','goalsFor','Reti segnate'],['🎯 Assist','assists','Passaggi decisivi'],['📋 Convocazioni','called','Chiamate in squadra'],['👟 Presenze','played','Partite disputate'],['🟨 Cartellini gialli','yellow','Ammonizioni'],['🟥 Cartellini rossi','red','Espulsioni']];
-    return intro('RECORD INDIVIDUALI','Statistiche giocatori',`I protagonisti della ${s.name.toLowerCase()}.`)+banner()+`<div class="panel-grid">${sections.map(([title,key,desc])=>`<div class="panel"><div class="panel-heading"><div><h2 class="panel-title">${title}</h2><span class="panel-caption">${desc}</span></div></div>${bars(byKey(st,key).filter(p=>p[key]>0).slice(0,8),key,key==='assists'||key==='played')}</div>`).join('')}</div>`;
+    return intro('RECORD INDIVIDUALI','Statistiche giocatori',all?'Statistiche cumulative di tutte le stagioni.':`I protagonisti della ${s.name.toLowerCase()}.`)+banner()+`<div class="panel-grid">${sections.map(([title,key,desc])=>`<div class="panel"><div class="panel-heading"><div><h2 class="panel-title">${title}</h2><span class="panel-caption">${desc}</span></div></div>${bars(byKey(st,key).filter(p=>p[key]>0).slice(0,all?st.length:8),key,key==='assists'||key==='played',all)}</div>`).join('')}</div>`;
   }
 
   // --- Campionato CSI Parma: dati importati dall'utente, NON letti automaticamente da Tuttocampo ---
@@ -2383,7 +2408,7 @@
     if(event.target.id==='formation-record'){if(event.target.value){if(!switchFormation(event.target.value))render();}else newFormation();return;}
     if(event.target.dataset.formationSlot){changeFormationPlayer(event.target.dataset.formationSlot,event.target.value);return;}
     if(event.target.id==='confirm-match-deletion'){const button=$('#confirm-delete-match-btn');if(button)button.disabled=!event.target.checked;}
-    if(event.target.id==='season-select'){if(state.view==='formation'&&!formationUnsavedGuard()){render();return;}state.seasonId=event.target.value;state.formationMatchId='';state.formationRecordId='';state.formationNew=false;state.formationDraft=null;render();analyticsTrackPage();}
+    if(event.target.id==='season-select'){if(state.view==='formation'&&!formationUnsavedGuard()){render();return;}if(state.view==='rankings'){state.rankingsAll=event.target.value==='__all__';if(state.rankingsAll){render();analyticsTrackPage();return;}}state.seasonId=event.target.value;state.formationMatchId='';state.formationRecordId='';state.formationNew=false;state.formationDraft=null;render();analyticsTrackPage();}
     else if(event.target.id==='roster-scope'){state.rosterScope=event.target.value;$('#players-tbody').innerHTML=playersTable();}
     else if(event.target.id==='league-csv-file'){const file=event.target.files?.[0];if(file)file.text().then(text=>{const input=$('#league-csv-paste');if(input){input.value=text;state.leagueImport=null;$('#league-import-save').disabled=true;$('#league-import-preview').replaceChildren();}}).catch(e=>toast(safeError(e),true));}
     else if(event.target.id==='csv-file'){const file=event.target.files?.[0];if(file){file.text().then(text=>{const target=$('#csv-paste');if(target){target.value=text;state.importPreview=null;$('#execute-import').disabled=true;$('#import-preview').replaceChildren();}}).catch(e=>toast(safeError(e),true));}}
