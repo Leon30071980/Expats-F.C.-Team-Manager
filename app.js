@@ -1,4 +1,4 @@
-/* EXPATS F.C. TEAM MANAGER — v1.47
+/* EXPATS F.C. TEAM MANAGER — v1.48
  * Frontend statico GitHub Pages + Google Sheets API (edit via OAuth) + GViz JSONP (pubblico).
  * Il controllo delle modifiche dipende dai permessi Google Drive sul foglio.
  */
@@ -6,7 +6,7 @@
   'use strict';
   const CFG = window.EXPATS_CONFIG;
   const SHEETS = ['Giocatori','Stagioni','Partite','Distinte','Pregresso','Tesseramenti','Ruoli','Stati','CampionatoClassifica','CampionatoPartite','CampionatoWidget','Formazioni','FormazioniPartite','EventiGol','IdoneitaRosa','FormazioniArchivio'];
-  const VERSION='v1.47';
+  const VERSION='v1.48';
   const FORMATION_SHEETS=new Set(['Formazioni','FormazioniPartite','FormazioniArchivio']);
   const PUBLIC_SHEETS=SHEETS.filter(s=>!FORMATION_SHEETS.has(s));
   const defaultCallable=label=>!/infortun|assen|ritirat|squalificat|sospes|cert.*med.*(?:scadut|mancant)|non.*tesserat|non.*verificat/i.test(String(label||'').normalize('NFD').replace(/[\u0300-\u036f]/g,''));
@@ -15,7 +15,7 @@
     data: structuredClone(window.EXPATS_DEMO),
     source: 'demo', view: 'league', seasonId: '', rankingsAll: false, rosterScope: 'season',
     sort: {key:'number',dir:1}, search:'', filter:'TUTTI', leagueTab:'calendario',
-    token: '', accountEmail:'', sheetIds: {}, schemaReady:false, busy: false, inlineSaving:false, lastError: '', formationDraft:null, formationMatchId:'', formationRecordId:'', formationNew:false, formationPickerSlot:null, athleteRecords:[],athleteError:'',athleteReady:false, analyticsRows:null,analyticsError:'',analyticsDays:30,analyticsLoading:false, finance:null,financeReady:false,financeError:'',financeLoading:false,financeTab:'movimenti', formationReady:false,formationError:'', lastSync:'',publicWarnings:[]
+    token: '', accountEmail:'', sheetIds: {}, schemaReady:false, busy: false, inlineSaving:false, lastError: '', formationDraft:null, formationMatchId:'', formationRecordId:'', formationNew:false, formationPickerSlot:null, athleteRecords:[],athleteError:'',athleteReady:false, analyticsRows:null,analyticsError:'',analyticsDays:30,analyticsLoading:false, finance:null,financeReady:false,financeError:'',financeLoading:false,financeTab:'movimenti', financeSort:{key:'name',dir:1}, financeDetailSort:{key:'name',dir:1}, formationReady:false,formationError:'', lastSync:'',publicWarnings:[]
   };
   const $ = (sel, root=document) => root.querySelector(sel);
   const el = (name, attrs={}) => Object.assign(document.createElement(name), attrs);
@@ -1110,17 +1110,55 @@
     }
     return [...groups.values()].map(g=>({...g,target:g.target||g.rows[0],fixed:fromCents(g.fixed),enrollment:fromCents(g.enrollment),registration:fromCents(g.registration),appearances:fromCents(g.appearances),legacyFixed:fromCents(g.legacyFixed),extra:fromCents(g.extra),total:fromCents(g.fixed+g.extra),paid:fromCents(g.paidCents),pending:fromCents(Math.max(0,g.fixed+g.extra-g.paidCents)),credit:fromCents(Math.max(0,g.paidCents-g.fixed-g.extra))}));
   }
+
+  const financeSeasonPlayer=id=>seasonPlayer(state.data.players.find(p=>p.id===id),state.seasonId);
+  const financeJersey=id=>{const p=financeSeasonPlayer(id);return p?playerJerseys(p,false,state.seasonId):'—';};
+  const financeJerseySort=id=>{const p=financeSeasonPlayer(id);return p&&p.number!==null&&p.number!==undefined&&p.number!==''&&Number.isFinite(Number(p.number))?Number(p.number):null;};
+  const financeBalanceColumns=[['number','Maglia'],['name','Atleta'],['enrollment','Quota Iscrizione','15 €'],['registration','Tesseramento','13 €'],['appearances','Quota Presenze','5 € / presenza'],['extra','Debiti Extra'],['total','Totale dovuto'],['paid','Versato'],['pending','Da saldare'],['credit','Credito'],['status','Stato']];
+  const financeDetailColumns=[['number','Maglia'],['name','Atleta'],['description','Quota'],['amount','Dovuto'],['paid','Versato'],['pending','Residuo'],['credit','Credito'],['due','Scadenza'],['status','Stato']];
+  const financeBalanceStatus=g=>g.pending>0?'In debito':g.credit>0?'A credito':'In pari';
+  function financeSortHeader(columns,scope){
+    const sort=scope==='detail'?state.financeDetailSort:state.financeSort;
+    return columns.map(([key,label,sub])=>'<th class="sortable finance-sort-head" aria-sort="'+(sort.key===key?(sort.dir===1?'ascending':'descending'):'none')+'"><button type="button" class="finance-sort-button" data-action="finance-sort" data-scope="'+scope+'" data-key="'+key+'" title="Ordina per '+esc(label)+'">'+esc(label)+' <span class="finance-sort-arrow" aria-hidden="true">'+(sort.key===key?(sort.dir===1?'↑':'↓'):'↕')+'</span>'+(sub?'<small>'+esc(sub)+'</small>':'')+'</button></th>').join('')+'<th>Azioni</th>';
+  }
+  function financeSortRows(rows,sort,getValue){
+    return [...rows].sort((a,b)=>{
+      const av=getValue(a,sort.key),bv=getValue(b,sort.key);
+      const missing=v=>v===null||v===undefined||v==='';
+      if(missing(av)!==missing(bv))return missing(av)?1:-1;
+      const cmp=missing(av)?0:typeof av==='number'&&typeof bv==='number'?av-bv:String(av).localeCompare(String(bv),'it',{numeric:true,sensitivity:'base'});
+      return cmp*sort.dir||financePlayerName(a.playerId).localeCompare(financePlayerName(b.playerId),'it',{sensitivity:'base'})||String(a.playerId).localeCompare(String(b.playerId))||String(a.id||'').localeCompare(String(b.id||''));
+    });
+  }
+  function financeBalanceSortValue(g,key){
+    if(key==='number')return financeJerseySort(g.playerId);
+    if(key==='name')return financePlayerName(g.playerId);
+    if(key==='status')return financeBalanceStatus(g);
+    if(g.needsSync&&['enrollment','registration','appearances'].includes(key))return null;
+    return g[key];
+  }
+  function financeDetailSortValue(r,key){
+    const paid=paymentTotal('PagamentiQuote','feeId',r.id);
+    if(key==='number')return financeJerseySort(r.playerId);
+    if(key==='name')return financePlayerName(r.playerId);
+    if(key==='paid')return paid;
+    if(key==='amount')return asMoney(r.amount);
+    if(key==='pending')return remaining(r.amount,paid);
+    if(key==='credit')return feeCredit(r.amount,paid);
+    if(key==='status')return cents(paid)>cents(r.amount)?'A credito':cents(paid)===cents(r.amount)?'Saldato':r.due&&r.due<finIsoToday()?'Scaduto':paid>0?'Parziale':'Da saldare';
+    return r[key];
+  }
   function renderPlayerBalances(){
     if(!state.athleteReady)return '<p class="import-error">Tesseramenti CSI non disponibili: aggiorna i Dati Atleti prima di visualizzare le quote.</p>';
     const registered=financeRegistered(state.seasonId);
-    const groups=financePlayerBalances(state.seasonId).filter(g=>registered.has(g.playerId)).sort((a,b)=>financePlayerName(a.playerId).localeCompare(financePlayerName(b.playerId),'it'));
+    const groups=financeSortRows(financePlayerBalances(state.seasonId).filter(g=>registered.has(g.playerId)),state.financeSort,financeBalanceSortValue);
     const rows=groups.map(g=>{
       const status=g.pending>0?'debt':g.credit>0?'credit':'settled';
       const chip=g.pending>0?'<span class="chip danger">In debito</span>':g.credit>0?'<span class="chip success">A credito</span>':'<span class="chip neutral">In pari</span>';
       const parts=g.needsSync?'<td colspan="3" class="finance-sync-needed">'+money(g.fixed)+' · Da sincronizzare</td>':'<td>'+money(g.enrollment)+'</td><td>'+money(g.registration)+'</td><td>'+money(g.appearances)+'</td>';
-      return '<tr class="finance-balance-'+status+'"><td><strong>'+esc(financePlayerName(g.playerId))+'</strong></td>'+parts+'<td>'+money(g.extra)+'</td><td>'+money(g.total)+'</td><td>'+money(g.paid)+'</td><td class="'+(g.pending>0?'finance-debt-value':'finance-zero-value')+'">'+money(g.pending)+'</td><td class="'+(g.credit>0?'finance-credit-value':'finance-zero-value')+'">'+money(g.credit)+'</td><td>'+chip+'</td><td><button class="btn btn-secondary btn-small" data-action="finance-pay-fee" data-id="'+esc(g.target.id)+'">Versamento</button></td></tr>';
+      return '<tr class="finance-balance-'+status+'"><td class="finance-jersey">'+financeJersey(g.playerId)+'</td><td><strong>'+esc(financePlayerName(g.playerId))+'</strong></td>'+parts+'<td>'+money(g.extra)+'</td><td>'+money(g.total)+'</td><td>'+money(g.paid)+'</td><td class="'+(g.pending>0?'finance-debt-value':'finance-zero-value')+'">'+money(g.pending)+'</td><td class="'+(g.credit>0?'finance-credit-value':'finance-zero-value')+'">'+money(g.credit)+'</td><td>'+chip+'</td><td><button class="btn btn-secondary btn-small" data-action="finance-pay-fee" data-id="'+esc(g.target.id)+'">Versamento</button></td></tr>';
     }).join('');
-    return (groups.some(g=>g.needsSync)?'<p class="notice finance-sync-needed">Sono presenti quote con la tariffa precedente. Premi Sincronizza quote per ricalcolarle e visualizzare le tre componenti; fino ad allora valgono gli importi salvati.</p>':'')+'<div class="table-shell"><table class="data-table finance-table finance-balances"><thead><tr><th>Atleta</th><th>Quota Iscrizione<small>15 €</small></th><th>Tesseramento<small>13 €</small></th><th>Quota Presenze<small>5 € / presenza</small></th><th>Debiti Extra</th><th>Totale dovuto</th><th>Versato</th><th>Da saldare</th><th>Credito</th><th>Stato</th><th>Azioni</th></tr></thead><tbody>'+(rows||'<tr><td colspan="11">Nessuna quota per questa stagione. Sincronizza le quote o aggiungi un debito.</td></tr>')+'</tbody></table></div>';
+    return (groups.some(g=>g.needsSync)?'<p class="notice finance-sync-needed">Sono presenti quote con la tariffa precedente. Premi Sincronizza quote per ricalcolarle e visualizzare le tre componenti; fino ad allora valgono gli importi salvati.</p>':'')+'<div class="table-shell"><table class="data-table finance-table finance-balances"><thead><tr>'+financeSortHeader(financeBalanceColumns,'balance')+'</tr></thead><tbody>'+(rows||'<tr><td colspan="12">Nessuna quota per questa stagione. Sincronizza le quote o aggiungi un debito.</td></tr>')+'</tbody></table></div>';
   }
   function financeSummary(){
     const moves=activeFin('Movimenti').filter(x=>x.seasonId===state.seasonId);
@@ -1159,7 +1197,7 @@
     const url=URL.createObjectURL(blob),link=el('a',{href:url,download:`Expats-contabilita-${activeSeason().name.replace('/','-')}.csv`});
     document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
   }
-  function renderFeeDetails(rows){return `<div class="table-shell"><table class="data-table finance-table"><thead><tr><th>Atleta</th><th>Quota</th><th>Dovuto</th><th>Versato</th><th>Residuo</th><th>Credito</th><th>Scadenza</th><th>Stato</th><th>Azioni</th></tr></thead><tbody>${rows.map(r=>{const paid=paymentTotal('PagamentiQuote','feeId',r.id),rem=remaining(r.amount,paid);return `<tr><td><strong>${esc(financePlayerName(r.playerId))}</strong></td><td>${esc(r.description)}${r.note?`<small>${esc(r.note)}</small>`:''}</td><td>${money(r.amount)}</td><td>${money(paid)}</td><td>${money(rem)}</td><td>${feeCredit(r.amount,paid)>0?`<strong>${money(feeCredit(r.amount,paid))}</strong>`:money(0)}</td><td>${r.due?esc(localeDate(r.due)):'—'}</td><td>${finDueLabel(r.amount,paid,r.due,true)}</td><td><div class="finance-actions">${r.description===FIXED_FEE_TITLE?'':`<button class="btn btn-secondary btn-small" data-action="finance-fee" data-id="${esc(r.id)}">Modifica</button>`}<button class="btn btn-secondary btn-small" data-action="finance-pay-fee" data-id="${esc(r.id)}">Versamento</button><button class="btn btn-secondary btn-small" data-action="finance-history" data-kind="fee" data-id="${esc(r.id)}">Storico</button>${r.description===FIXED_FEE_TITLE?'':`<button class="btn btn-danger btn-small" data-action="finance-remove" data-kind="QuoteAtleti" data-id="${esc(r.id)}">Annulla</button>`}</div></td></tr>`}).join('')||'<tr><td colspan="9">Non sono state assegnate quote individuali a questa stagione.</td></tr>'}</tbody></table></div>`;}
+  function renderFeeDetails(rows){return `<div class="table-shell"><table class="data-table finance-table"><thead><tr>${financeSortHeader(financeDetailColumns,'detail')}</tr></thead><tbody>${financeSortRows(rows,state.financeDetailSort,financeDetailSortValue).map(r=>{const paid=paymentTotal('PagamentiQuote','feeId',r.id),rem=remaining(r.amount,paid);return `<tr><td class="finance-jersey">${financeJersey(r.playerId)}</td><td><strong>${esc(financePlayerName(r.playerId))}</strong></td><td>${esc(r.description)}${r.note?`<small>${esc(r.note)}</small>`:''}</td><td>${money(r.amount)}</td><td>${money(paid)}</td><td>${money(rem)}</td><td>${feeCredit(r.amount,paid)>0?`<strong>${money(feeCredit(r.amount,paid))}</strong>`:money(0)}</td><td>${r.due?esc(localeDate(r.due)):'—'}</td><td>${finDueLabel(r.amount,paid,r.due,true)}</td><td><div class="finance-actions">${r.description===FIXED_FEE_TITLE?'':`<button class="btn btn-secondary btn-small" data-action="finance-fee" data-id="${esc(r.id)}">Modifica</button>`}<button class="btn btn-secondary btn-small" data-action="finance-pay-fee" data-id="${esc(r.id)}">Versamento</button><button class="btn btn-secondary btn-small" data-action="finance-history" data-kind="fee" data-id="${esc(r.id)}">Storico</button>${r.description===FIXED_FEE_TITLE?'':`<button class="btn btn-danger btn-small" data-action="finance-remove" data-kind="QuoteAtleti" data-id="${esc(r.id)}">Annulla</button>`}</div></td></tr>`}).join('')||'<tr><td colspan="10">Non sono state assegnate quote individuali a questa stagione.</td></tr>'}</tbody></table></div>`;}
   function renderFinance(){
     if(!isFinAdmin())return '';
     const head=intro('AREA RISERVATA','Spese società','Contabilità della società e quote individuali degli atleti, separate per stagione.',`<button class="btn btn-secondary" data-action="finance-refresh">↻ Aggiorna</button><button class="btn btn-secondary" data-action="finance-export">↓ CSV</button>`);
@@ -2431,6 +2469,16 @@
     else if(action==='analytics-privacy')analyticsPrivacyDialog();
     else if(action==='formation-refresh'){loadFormationPrivate().then(render);}
     else if(action==='finance-tab'){state.financeTab=btn.dataset.tab||'movimenti';render();}
+    else if(action==='finance-sort'){
+      const detail=btn.dataset.scope==='detail',columns=detail?financeDetailColumns:financeBalanceColumns,sort=detail?state.financeDetailSort:state.financeSort,key=btn.dataset.key;
+      if(!columns.some(c=>c[0]===key))return;
+      const open=btn.closest('details')?.open;
+      const scroll=btn.closest('.table-shell')?.scrollLeft||0;
+      sort.dir=sort.key===key?-sort.dir:1;sort.key=key;render();
+      if(detail&&open){const d=document.querySelector('details:has(.finance-sort-button[data-scope="detail"])');if(d)d.open=true;}
+      const next=document.querySelector('.finance-sort-button[data-scope="'+(detail?'detail':'balance')+'"][data-key="'+key+'"]');
+      if(next){const shell=next.closest('.table-shell');if(shell)shell.scrollLeft=scroll;next.focus({preventScroll:true});}
+    }
     else if(action==='finance-refresh')loadFinancePrivate();
     else if(action==='finance-sync-fixed')syncFixedFees();
     else if(action==='finance-export')financeExport();
