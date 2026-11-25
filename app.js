@@ -1,4 +1,4 @@
-/* EXPATS F.C. TEAM MANAGER — v1.46
+/* EXPATS F.C. TEAM MANAGER — v1.47
  * Frontend statico GitHub Pages + Google Sheets API (edit via OAuth) + GViz JSONP (pubblico).
  * Il controllo delle modifiche dipende dai permessi Google Drive sul foglio.
  */
@@ -6,7 +6,7 @@
   'use strict';
   const CFG = window.EXPATS_CONFIG;
   const SHEETS = ['Giocatori','Stagioni','Partite','Distinte','Pregresso','Tesseramenti','Ruoli','Stati','CampionatoClassifica','CampionatoPartite','CampionatoWidget','Formazioni','FormazioniPartite','EventiGol','IdoneitaRosa','FormazioniArchivio'];
-  const VERSION='v1.46';
+  const VERSION='v1.47';
   const FORMATION_SHEETS=new Set(['Formazioni','FormazioniPartite','FormazioniArchivio']);
   const PUBLIC_SHEETS=SHEETS.filter(s=>!FORMATION_SHEETS.has(s));
   const defaultCallable=label=>!/infortun|assen|ritirat|squalificat|sospes|cert.*med.*(?:scadut|mancant)|non.*tesserat|non.*verificat/i.test(String(label||'').normalize('NFD').replace(/[\u0300-\u036f]/g,''));
@@ -1037,10 +1037,11 @@
   const financeCategoryName=id=>finRows('Categorie').find(x=>x.id===id)?.name||id||'Senza categoria';
   const financePlayerName=id=>{const p=state.data.players.find(p=>p.id===id);return p?name(p):'Giocatore non presente';};
 
-  // Quote stagionali: 15 EUR iscrizione in rosa, 13 EUR CSI, 5 EUR per presenza effettiva.
+  // Quote stagionali solo per tesserati CSI: 15 EUR iscrizione, 13 EUR CSI, 5 EUR per presenza effettiva.
   const FIXED_FEE_TITLE='Quota regolamento - tesseramento e presenze';
   const FEE_RATES=Object.freeze({enrollment:15,registration:13,appearance:5});
-  const feeBreakdown=(member,csi,appearances)=>({enrollment:member?FEE_RATES.enrollment:0,registration:csi?FEE_RATES.registration:0,appearances:positiveInt(appearances)*FEE_RATES.appearance});
+  const financeRegistered=(seasonId)=>new Set((state.athleteReady?state.athleteRecords:[]).filter(r=>r.seasonId===seasonId&&r.csi).map(r=>r.playerId));
+  const feeBreakdown=(member,csi,appearances)=>({enrollment:csi?FEE_RATES.enrollment:0,registration:csi?FEE_RATES.registration:0,appearances:csi?positiveInt(appearances)*FEE_RATES.appearance:0});
   const feeBreakdownNote=b=>'Quota Iscrizione: '+b.enrollment+' EUR; Tesseramento: '+b.registration+' EUR; Quota Presenze: '+b.appearances+' EUR';
   function readFeeBreakdown(q){
     const m=/^Quota Iscrizione: (\d+) EUR; Tesseramento: (\d+) EUR; Quota Presenze: (\d+) EUR$/.exec(String(q.note||''));
@@ -1052,8 +1053,8 @@
   function fixedFeeChanges(){
     if(!state.athleteReady)throw new Error('Dati Atleti non caricati: impossibile verificare il tesseramento CSI.');
     const played=new Map(statsForSeason(state.seasonId).map(p=>[p.id,positiveInt(p.played)]));
-    const registered=new Set(state.athleteRecords.filter(r=>r.seasonId===state.seasonId&&r.csi).map(r=>r.playerId));
-    const planned=state.data.players.map(p=>({id:p.id,breakdown:feeBreakdown(isMember(p.id,state.seasonId),registered.has(p.id),played.get(p.id)||0)}))
+    const registered=financeRegistered(state.seasonId);
+    const planned=state.data.players.filter(p=>registered.has(p.id)).map(p=>({id:p.id,breakdown:feeBreakdown(true,true,played.get(p.id)||0)}))
       .map(p=>({...p,amount:p.breakdown.enrollment+p.breakdown.registration+p.breakdown.appearances,note:feeBreakdownNote(p.breakdown)})).filter(p=>p.amount>0);
     const existing=activeFin('QuoteAtleti').filter(q=>q.seasonId===state.seasonId&&q.description===FIXED_FEE_TITLE);
     if(new Set(existing.map(q=>q.playerId)).size!==existing.length)throw new Error('Quote automatiche duplicate: verifica il foglio privato.');
@@ -1069,7 +1070,7 @@
         if(cents(old.amount)!==0||!readFeeBreakdown(old))entries.push({sheet:'QuoteAtleti',values:[old.id,old.seasonId,old.playerId,old.description,0,old.due,feeBreakdownNote(feeBreakdown(false,false,0)),1],previous:rawFin('QuoteAtleti',old.id),reason:'Dovuto azzerato; credito atleta conservato'});
         continue;
       }
-      entries.push({sheet:'QuoteAtleti',values:[old.id,old.seasonId,old.playerId,old.description,old.amount,old.due,old.note,0],previous:rawFin('QuoteAtleti',old.id),reason:'Nessuna quota dovuta per tesseramento o presenze'});
+      entries.push({sheet:'QuoteAtleti',values:[old.id,old.seasonId,old.playerId,old.description,old.amount,old.due,old.note,0],previous:rawFin('QuoteAtleti',old.id),reason:'Non tesserato CSI: nessuna quota automatica dovuta'});
     }
     return {entries};
   }
@@ -1079,7 +1080,7 @@
     try{
       const result=fixedFeeChanges();
       if(!result.entries.length){toast('Le quote sono già aggiornate.');return;}
-      if(!window.confirm('Sincronizzare '+result.entries.length+' quote della stagione selezionata con 15 EUR iscrizione + 13 EUR CSI + 5 EUR per presenza? I versamenti esistenti saranno conservati.'))return;
+      if(!window.confirm('Sincronizzare '+result.entries.length+' quote della stagione selezionata? Solo i tesserati CSI devono 15 EUR iscrizione + 13 EUR CSI + 5 EUR per presenza. Le quote automatiche dei non tesserati saranno azzerate o annullate; versamenti e debiti extra esistenti saranno conservati.'))return;
       await financeLocked(async lockId=>{
         const next=fixedFeeChanges();
         for(const e of next.entries)validateFinanceWrite(e.sheet,e.values,e.previous,true);
@@ -1110,7 +1111,9 @@
     return [...groups.values()].map(g=>({...g,target:g.target||g.rows[0],fixed:fromCents(g.fixed),enrollment:fromCents(g.enrollment),registration:fromCents(g.registration),appearances:fromCents(g.appearances),legacyFixed:fromCents(g.legacyFixed),extra:fromCents(g.extra),total:fromCents(g.fixed+g.extra),paid:fromCents(g.paidCents),pending:fromCents(Math.max(0,g.fixed+g.extra-g.paidCents)),credit:fromCents(Math.max(0,g.paidCents-g.fixed-g.extra))}));
   }
   function renderPlayerBalances(){
-    const groups=financePlayerBalances(state.seasonId).sort((a,b)=>financePlayerName(a.playerId).localeCompare(financePlayerName(b.playerId),'it'));
+    if(!state.athleteReady)return '<p class="import-error">Tesseramenti CSI non disponibili: aggiorna i Dati Atleti prima di visualizzare le quote.</p>';
+    const registered=financeRegistered(state.seasonId);
+    const groups=financePlayerBalances(state.seasonId).filter(g=>registered.has(g.playerId)).sort((a,b)=>financePlayerName(a.playerId).localeCompare(financePlayerName(b.playerId),'it'));
     const rows=groups.map(g=>{
       const status=g.pending>0?'debt':g.credit>0?'credit':'settled';
       const chip=g.pending>0?'<span class="chip danger">In debito</span>':g.credit>0?'<span class="chip success">A credito</span>':'<span class="chip neutral">In pari</span>';
@@ -1156,6 +1159,7 @@
     const url=URL.createObjectURL(blob),link=el('a',{href:url,download:`Expats-contabilita-${activeSeason().name.replace('/','-')}.csv`});
     document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
   }
+  function renderFeeDetails(rows){return `<div class="table-shell"><table class="data-table finance-table"><thead><tr><th>Atleta</th><th>Quota</th><th>Dovuto</th><th>Versato</th><th>Residuo</th><th>Credito</th><th>Scadenza</th><th>Stato</th><th>Azioni</th></tr></thead><tbody>${rows.map(r=>{const paid=paymentTotal('PagamentiQuote','feeId',r.id),rem=remaining(r.amount,paid);return `<tr><td><strong>${esc(financePlayerName(r.playerId))}</strong></td><td>${esc(r.description)}${r.note?`<small>${esc(r.note)}</small>`:''}</td><td>${money(r.amount)}</td><td>${money(paid)}</td><td>${money(rem)}</td><td>${feeCredit(r.amount,paid)>0?`<strong>${money(feeCredit(r.amount,paid))}</strong>`:money(0)}</td><td>${r.due?esc(localeDate(r.due)):'—'}</td><td>${finDueLabel(r.amount,paid,r.due,true)}</td><td><div class="finance-actions">${r.description===FIXED_FEE_TITLE?'':`<button class="btn btn-secondary btn-small" data-action="finance-fee" data-id="${esc(r.id)}">Modifica</button>`}<button class="btn btn-secondary btn-small" data-action="finance-pay-fee" data-id="${esc(r.id)}">Versamento</button><button class="btn btn-secondary btn-small" data-action="finance-history" data-kind="fee" data-id="${esc(r.id)}">Storico</button>${r.description===FIXED_FEE_TITLE?'':`<button class="btn btn-danger btn-small" data-action="finance-remove" data-kind="QuoteAtleti" data-id="${esc(r.id)}">Annulla</button>`}</div></td></tr>`}).join('')||'<tr><td colspan="9">Non sono state assegnate quote individuali a questa stagione.</td></tr>'}</tbody></table></div>`;}
   function renderFinance(){
     if(!isFinAdmin())return '';
     const head=intro('AREA RISERVATA','Spese società','Contabilità della società e quote individuali degli atleti, separate per stagione.',`<button class="btn btn-secondary" data-action="finance-refresh">↻ Aggiorna</button><button class="btn btn-secondary" data-action="finance-export">↓ CSV</button>`);
@@ -1171,9 +1175,15 @@
       const rows=activeFin('Movimenti').filter(r=>r.seasonId===state.seasonId).sort((a,b)=>b.date.localeCompare(a.date));
       body+=`<section class="panel"><div class="panel-heading"><h2 class="panel-title">Entrate e uscite · ${esc(activeSeason().name)}</h2><button class="btn btn-primary" data-action="finance-movement">＋ Nuovo movimento</button></div><div class="table-shell"><table class="data-table finance-table"><thead><tr><th>Data</th><th>Descrizione</th><th>Tipo / categoria</th><th>Importo</th><th>Pagato</th><th>Residuo</th><th>Stato</th><th>Azioni</th></tr></thead><tbody>${rows.map(r=>{const total=movementTotal(r),paid=paymentTotal('PagamentiMovimenti','movementId',r.id),rem=remaining(total,paid);return `<tr><td>${esc(localeDate(r.date))}</td><td><strong>${esc(r.description)}</strong>${r.due?`<small>Scadenza: ${esc(localeDate(r.due))}</small>`:''}${r.documentUrl&&/^https:\/\//.test(r.documentUrl)?`<small><a href="${esc(r.documentUrl)}" target="_blank" rel="noopener noreferrer">Documento ↗</a></small>`:''}</td><td>${r.type==='ENTRATA'?'Entrata':'Uscita'}<small>${esc(financeCategoryName(r.category))}</small></td><td>${money(total)}</td><td>${money(paid)}</td><td>${money(rem)}</td><td>${finDueLabel(total,paid,r.due)}</td><td><div class="finance-actions"><button class="btn btn-secondary btn-small" data-action="finance-movement" data-id="${esc(r.id)}">Modifica</button><button class="btn btn-secondary btn-small" data-action="finance-pay-movement" data-id="${esc(r.id)}" ${rem<=0?'disabled':''}>Pagamento</button><button class="btn btn-secondary btn-small" data-action="finance-history" data-kind="movement" data-id="${esc(r.id)}">Storico</button><button class="btn btn-danger btn-small" data-action="finance-remove" data-kind="Movimenti" data-id="${esc(r.id)}">Annulla</button></div></td></tr>`}).join('')||'<tr><td colspan="8">Nessun movimento per questa stagione.</td></tr>'}</tbody></table></div><p class="notice">Gli importi versati sono registrati separatamente. Per una sponsorizzazione crea un'Entrata, non una spesa negativa.</p></section>`;
     }else if(state.financeTab==='quote'){
-      const rows=activeFin('QuoteAtleti').filter(r=>r.seasonId===state.seasonId).sort((a,b)=>financePlayerName(a.playerId).localeCompare(financePlayerName(b.playerId),'it'));
-      body+=`<section class="panel"><div class="panel-heading"><h2 class="panel-title">Quote individuali · ${esc(activeSeason().name)}</h2><div class="finance-actions"><button class="btn btn-secondary" data-action="finance-sync-fixed">↻ Sincronizza quote</button><button class="btn btn-primary" data-action="finance-fee">＋ Aggiungi debito extra</button></div></div><p class="notice"><strong>Regola fissa:</strong> 15 € di iscrizione per ogni giocatore in rosa, 13 € di tesseramento CSI se regolare e 5 € per ogni presenza stagionale effettiva. Le sole convocazioni non producono addebiti. Puoi aggiungere arretrati o altri debiti extra: rimangono separati dalla quota fissa, ma concorrono allo stesso saldo individuale. Il credito di un atleta compensa tutte le sue quote della stagione, comprese quelle future dopo la sincronizzazione. Non trasferire due volte gli arretrati.</p>${renderPlayerBalances()}<details class="mt-20"><summary><strong>Dettaglio singole voci e storico versamenti</strong></summary><p class="notice">I residui e i crediti qui sotto sono riferiti alle singole voci, prima della compensazione individuale. Per il saldo effettivo usa la tabella sopra.</p><div class="table-shell"><table class="data-table finance-table"><thead><tr><th>Atleta</th><th>Quota</th><th>Dovuto</th><th>Versato</th><th>Residuo</th><th>Credito</th><th>Scadenza</th><th>Stato</th><th>Azioni</th></tr></thead><tbody>${rows.map(r=>{const paid=paymentTotal('PagamentiQuote','feeId',r.id),rem=remaining(r.amount,paid);return `<tr><td><strong>${esc(financePlayerName(r.playerId))}</strong></td><td>${esc(r.description)}${r.note?`<small>${esc(r.note)}</small>`:''}</td><td>${money(r.amount)}</td><td>${money(paid)}</td><td>${money(rem)}</td><td>${feeCredit(r.amount,paid)>0?`<strong>${money(feeCredit(r.amount,paid))}</strong>`:money(0)}</td><td>${r.due?esc(localeDate(r.due)):'—'}</td><td>${finDueLabel(r.amount,paid,r.due,true)}</td><td><div class="finance-actions">${r.description===FIXED_FEE_TITLE?'':`<button class="btn btn-secondary btn-small" data-action="finance-fee" data-id="${esc(r.id)}">Modifica</button>`}<button class="btn btn-secondary btn-small" data-action="finance-pay-fee" data-id="${esc(r.id)}">Versamento</button><button class="btn btn-secondary btn-small" data-action="finance-history" data-kind="fee" data-id="${esc(r.id)}">Storico</button>${r.description===FIXED_FEE_TITLE?'':`<button class="btn btn-danger btn-small" data-action="finance-remove" data-kind="QuoteAtleti" data-id="${esc(r.id)}">Annulla</button>`}</div></td></tr>`}).join('')||'<tr><td colspan="9">Non sono state assegnate quote individuali a questa stagione.</td></tr>'}</tbody></table></div></details><p class="notice">Le quote previste non sono incassi. Entrano nel saldo soltanto i versamenti realmente registrati.</p></section>`;
+      const registered=financeRegistered(state.seasonId);
+      const rows=activeFin('QuoteAtleti').filter(r=>r.seasonId===state.seasonId&&registered.has(r.playerId)).sort((a,b)=>financePlayerName(a.playerId).localeCompare(financePlayerName(b.playerId),'it'));
+      body+=`<section class="panel"><div class="panel-heading"><h2 class="panel-title">Quote individuali · ${esc(activeSeason().name)}</h2><div class="finance-actions"><button class="btn btn-secondary" data-action="finance-sync-fixed">↻ Sincronizza quote</button><button class="btn btn-primary" data-action="finance-fee">＋ Aggiungi debito extra</button></div></div><p class="notice"><strong>Regola fissa:</strong> Solo per i tesserati CSI: 15 € di iscrizione, 13 € di tesseramento e 5 € per ogni presenza stagionale effettiva. I non tesserati non maturano quote automatiche e non compaiono nella lista. Le sole convocazioni non producono addebiti. Puoi aggiungere arretrati o altri debiti extra: rimangono separati dalla quota fissa, ma concorrono allo stesso saldo individuale. Il credito di un atleta compensa tutte le sue quote della stagione, comprese quelle future dopo la sincronizzazione. Non trasferire due volte gli arretrati. Eventuali posizioni contabili dei non tesserati sono conservate in Storico e annullati, senza alterare gli incassi. Sincronizza per aggiornare gli importi.</p>${renderPlayerBalances()}<details class="mt-20"><summary><strong>Dettaglio singole voci e storico versamenti</strong></summary><p class="notice">I residui e i crediti qui sotto sono riferiti alle singole voci, prima della compensazione individuale. Per il saldo effettivo usa la tabella sopra.</p>${renderFeeDetails(rows)}</details><p class="notice">Le quote previste non sono incassi. Entrano nel saldo soltanto i versamenti realmente registrati.</p></section>`;
     }else if(state.financeTab==='storico'){
+      if(state.athleteReady){
+        const registered=financeRegistered(state.seasonId);
+        const excluded=activeFin('QuoteAtleti').filter(r=>r.seasonId===state.seasonId&&!registered.has(r.playerId));
+        if(excluded.length)body+=`<section class="panel mt-20"><h2 class="panel-title">Posizioni contabili conservate · non tesserati</h2><p class="notice">Non compaiono nelle quote giocatori. I versamenti e i debiti extra già registrati restano disponibili e concorrono alla contabilità. Sincronizza le quote per azzerare eventuali importi automatici precedenti.</p>${renderFeeDetails(excluded)}</section>`;
+      }else body+='<p class="notice">Tesseramenti non disponibili: impossibile distinguere le posizioni dei non tesserati.</p>';
       const inactive=[...finRows('Movimenti').filter(r=>!r.active&&r.seasonId===state.seasonId).map(r=>({id:r.id,label:r.description,amount:movementTotal(r),kind:'movement'})),...finRows('QuoteAtleti').filter(r=>!r.active&&r.seasonId===state.seasonId).map(r=>({id:r.id,label:financePlayerName(r.playerId)+' · '+r.description,amount:r.amount,kind:'fee'}))];
       const logs=finRows('LogRevisioniContabili').slice().reverse();
       const dataLabel=r=>{try{const v=JSON.parse(r);return Array.isArray(v)?v.map(x=>String(x??'')).join(' · '):'—';}catch(_){return '—';}};
@@ -1280,6 +1290,7 @@
   function validateFinanceWrite(sheet,values,previous,automatic=false){
     const [id,link]=values;
     if(sheet==='QuoteAtleti'&&!automatic&&(String(values[3])===FIXED_FEE_TITLE||String(previous?.Descrizione)===FIXED_FEE_TITLE))throw new Error('Quota automatica non modificabile manualmente.');
+    if(sheet==='QuoteAtleti'&&!previous&&!automatic&&(!state.athleteReady||!financeRegistered(values[1]).has(values[2])))throw new Error('Le nuove quote sono riservate ai tesserati CSI.');
     const isPayment=sheet==='PagamentiQuote'||sheet==='PagamentiMovimenti';
     if(isPayment&&one(values[6])){
       const fee=sheet==='PagamentiQuote';
@@ -1321,10 +1332,11 @@
   }
   function financeFeeForm(id=''){
     const q=finRows('QuoteAtleti').find(x=>x.id===id);
-    const roster=new Set(playersInSeason(state.seasonId).map(p=>p.id));
-    const options=[...state.data.players].sort((a,b)=>Number(roster.has(b.id))-Number(roster.has(a.id))||name(a).localeCompare(name(b),'it')).map(p=>[p.id,name(p)+(roster.has(p.id)?'':' (fuori rosa)')]);
+    if(!state.athleteReady&&!q){toast('Tesseramenti non disponibili.',true);return;}
+    const registered=financeRegistered(state.seasonId);
+    const options=state.data.players.filter(p=>registered.has(p.id)).sort((a,b)=>name(a).localeCompare(name(b),'it')).map(p=>[p.id,name(p)]);
     if(q&&!options.some(x=>x[0]===q.playerId))options.push([q.playerId,financePlayerName(q.playerId)]);
-    if(!options.length){toast('Nessun giocatore nella rosa selezionata.',true);return;}
+    if(!options.length){toast('Nessun tesserato CSI nella stagione selezionata.',true);return;}
     const fields=[finFormRow('Giocatore',q?`<input type="hidden" name="playerId" value="${esc(q.playerId)}"><input class="form-control" value="${esc(financePlayerName(q.playerId))}" readonly><small>Il destinatario non si cambia: annulla e crea una nuova quota se necessario.</small>`:finSelect('playerId',options,options[0][0])),finFormRow('Causale debito',finInput('description',q?.description||'','text','required maxlength="100" placeholder="Es. Debito stagione 2025/26"')),finFormRow('Importo dovuto (€)',finInput('amount',q?.amount??'','number','min="0.01" step="0.01" required')),finFormRow('Scadenza',finInput('due',q?.due||'','date')),finFormRow('Note',`<textarea class="form-control" name="note" rows="2" maxlength="500">${esc(q?.note||'')}</textarea>`)];
     modal(q?'Modifica debito extra':'Aggiungi debito extra',`<form id="finance-form" class="finance-form" onsubmit="return false">${fields.join('')}</form><p class="form-guide">Il debito viene aggiunto al saldo della stagione selezionata. Non modifica la tariffa fissa e non trasferisce automaticamente quote da altre stagioni. Registra gli incassi separatamente.</p>`,`<button class="btn btn-secondary" data-action="close-modal">Annulla</button><button class="btn btn-primary" data-action="finance-save-fee" data-id="${esc(id)}">Salva debito</button>`);
   }
