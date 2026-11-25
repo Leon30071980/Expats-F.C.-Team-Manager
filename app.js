@@ -1,4 +1,4 @@
-/* EXPATS F.C. TEAM MANAGER — v1.49
+/* EXPATS F.C. TEAM MANAGER — v1.50
  * Frontend statico GitHub Pages + Google Sheets API (edit via OAuth) + GViz JSONP (pubblico).
  * Il controllo delle modifiche dipende dai permessi Google Drive sul foglio.
  */
@@ -6,7 +6,7 @@
   'use strict';
   const CFG = window.EXPATS_CONFIG;
   const SHEETS = ['Giocatori','Stagioni','Partite','Distinte','Pregresso','Tesseramenti','Ruoli','Stati','CampionatoClassifica','CampionatoPartite','CampionatoWidget','Formazioni','FormazioniPartite','EventiGol','IdoneitaRosa','FormazioniArchivio'];
-  const VERSION='v1.49';
+  const VERSION='v1.50';
   const FORMATION_SHEETS=new Set(['Formazioni','FormazioniPartite','FormazioniArchivio']);
   const PUBLIC_SHEETS=SHEETS.filter(s=>!FORMATION_SHEETS.has(s));
   const defaultCallable=label=>!/infortun|assen|ritirat|squalificat|sospes|cert.*med.*(?:scadut|mancant)|non.*tesserat|non.*verificat/i.test(String(label||'').normalize('NFD').replace(/[\u0300-\u036f]/g,''));
@@ -1037,9 +1037,11 @@
   const financeCategoryName=id=>finRows('Categorie').find(x=>x.id===id)?.name||id||'Senza categoria';
   const financePlayerName=id=>{const p=state.data.players.find(p=>p.id===id);return p?name(p):'Giocatore non presente';};
 
-  // Quote stagionali solo per tesserati CSI: 15 EUR iscrizione, 13 EUR CSI, 5 EUR per presenza effettiva.
+  // Quote stagionali solo per tesserati CSI: 15 EUR iscrizione, 13 EUR CSI, 6 EUR per presenza effettiva (campo e arbitro).
   const FIXED_FEE_TITLE='Quota regolamento - tesseramento e presenze';
-  const FEE_RATES=Object.freeze({enrollment:15,registration:13,appearance:5});
+  const FEE_RATES=Object.freeze({enrollment:15,registration:13,appearance:6});
+  // Numero di gare confermato per il campionato 2026/27; non presumere lo stesso calendario per altre stagioni.
+  const FINANCE_SEASON_GAMES=Object.freeze({'s-2026-27':18});
   const financeRegistered=(seasonId)=>new Set((state.athleteReady?state.athleteRecords:[]).filter(r=>r.seasonId===seasonId&&r.csi).map(r=>r.playerId));
   const feeBreakdown=(member,csi,appearances)=>({enrollment:csi?FEE_RATES.enrollment:0,registration:csi?FEE_RATES.registration:0,appearances:csi?positiveInt(appearances)*FEE_RATES.appearance:0});
   const feeBreakdownNote=b=>'Quota Iscrizione: '+b.enrollment+' EUR; Tesseramento: '+b.registration+' EUR; Quota Presenze: '+b.appearances+' EUR';
@@ -1062,7 +1064,7 @@
     for(const p of planned){
       const old=existing.find(q=>q.playerId===p.id);
       if(old&&cents(old.amount)===cents(p.amount)&&old.note===p.note)continue;
-      entries.push({sheet:'QuoteAtleti',values:[old?.id||uid('quota'),state.seasonId,p.id,FIXED_FEE_TITLE,p.amount,'',p.note,1],previous:old?rawFin('QuoteAtleti',old.id):null,reason:'Tariffe: 15 EUR iscrizione, 13 EUR CSI, 5 EUR presenza'});
+      entries.push({sheet:'QuoteAtleti',values:[old?.id||uid('quota'),state.seasonId,p.id,FIXED_FEE_TITLE,p.amount,'',p.note,1],previous:old?rawFin('QuoteAtleti',old.id):null,reason:'Tariffe: 15 EUR iscrizione, 13 EUR CSI, 6 EUR presenza (campo e arbitro)'});
     }
     for(const old of existing.filter(q=>!expected.has(q.playerId))){
       const paid=paymentTotal('PagamentiQuote','feeId',old.id);
@@ -1080,7 +1082,7 @@
     try{
       const result=fixedFeeChanges();
       if(!result.entries.length){toast('Le quote sono già aggiornate.');return;}
-      if(!window.confirm('Sincronizzare '+result.entries.length+' quote della stagione selezionata? Solo i tesserati CSI devono 15 EUR iscrizione + 13 EUR CSI + 5 EUR per presenza. Le quote automatiche dei non tesserati saranno azzerate o annullate; versamenti e debiti extra esistenti saranno conservati.'))return;
+      if(!window.confirm('Sincronizzare '+result.entries.length+' quote della stagione selezionata? Solo i tesserati CSI devono 15 EUR iscrizione + 13 EUR CSI + 6 EUR per presenza (campo e arbitro). Le quote automatiche dei non tesserati saranno azzerate o annullate; versamenti e debiti extra esistenti saranno conservati.'))return;
       await financeLocked(async lockId=>{
         const next=fixedFeeChanges();
         for(const e of next.entries)validateFinanceWrite(e.sheet,e.values,e.previous,true);
@@ -1114,7 +1116,7 @@
   const financeSeasonPlayer=id=>seasonPlayer(state.data.players.find(p=>p.id===id),state.seasonId);
   const financeJersey=id=>{const p=financeSeasonPlayer(id);return p?playerJerseys(p,false,state.seasonId):'—';};
   const financeJerseySort=id=>{const p=financeSeasonPlayer(id);return p&&p.number!==null&&p.number!==undefined&&p.number!==''&&Number.isFinite(Number(p.number))?Number(p.number):null;};
-  const financeBalanceColumns=[['number','Maglia'],['name','Atleta'],['enrollment','Quota Iscrizione','15 €'],['registration','Tesseramento','13 €'],['appearances','Quota Presenze','5 € / presenza'],['extra','Debiti Extra'],['total','Totale dovuto'],['paid','Versato'],['pending','Da saldare'],['credit','Credito'],['status','Stato']];
+  const financeBalanceColumns=[['number','Maglia'],['name','Atleta'],['enrollment','Quota Iscrizione','15 €'],['registration','Tesseramento','13 €'],['appearances','Quota Presenze','6 € / presenza'],['extra','Debiti Extra'],['total','Totale dovuto'],['paid','Versato'],['pending','Da saldare'],['credit','Credito'],['status','Stato']];
   const financeDetailColumns=[['number','Maglia'],['name','Atleta'],['description','Quota'],['amount','Dovuto'],['paid','Versato'],['pending','Residuo'],['credit','Credito'],['due','Scadenza'],['status','Stato']];
   const financeBalanceStatus=g=>g.pending>0?'In debito':g.credit>0?'A credito':'In pari';
   function financeSortHeader(columns,scope){
@@ -1167,6 +1169,35 @@
     const arrearsPaid=Math.min(arrears,paid);
     const currentPaid=Math.min(current,paid-arrearsPaid);
     return {arrearsDue:fromCents(arrears),arrearsPaid:fromCents(arrearsPaid),arrearsPending:fromCents(arrears-arrearsPaid),currentDue:fromCents(current),currentPaid:fromCents(currentPaid),currentPending:fromCents(current-currentPaid),advance:fromCents(paid-arrearsPaid-currentPaid)};
+  }
+  // Stima dinamica delle entrate future: dati sportivi reali, solo tesserati CSI.
+  // La proiezione non scrive nel registro contabile e non include arretrati.
+  function financeForecast(seasonId,summary){
+    if(!state.athleteReady)return {available:false,reason:'Dati Atleti non disponibili: impossibile stimare le quote.'};
+    const registered=financeRegistered(seasonId);
+    const players=statsForSeason(seasonId).filter(p=>registered.has(p.id));
+    const appearances=players.reduce((sum,p)=>sum+positiveInt(p.played),0);
+    const fixed=players.length*(FEE_RATES.enrollment+FEE_RATES.registration);
+    const expectedDues=fromCents(cents(fixed)+appearances*cents(FEE_RATES.appearance));
+    const accrued=fromCents(cents(expectedDues)+cents(summary.incomeTotal));
+    const planned=FINANCE_SEASON_GAMES[seasonId];
+    const today=finIsoToday();
+    const observedIds=new Set(state.data.lineups.filter(l=>one(l.played)).map(l=>l.matchId));
+    const games=state.data.matches.filter(m=>m.seasonId===seasonId&&!m.noStats&&m.date&&m.date<=today&&observedIds.has(m.id));
+    const gameIds=new Set(games.map(m=>m.id));
+    const observed=state.data.lineups.filter(l=>gameIds.has(l.matchId)&&registered.has(l.playerId)&&one(l.played)).length;
+    const played=gameIds.size;
+    const average=played?observed/played:null;
+    const syncNeeded=cents(expectedDues)!==cents(summary.currentDues);
+    const base={accrued,expectedDues,registered:players.length,appearances,observed,played,planned,average,syncNeeded};
+    if(!Number.isInteger(planned)||planned<=0)return {...base,available:false,reason:'Numero di gare totali non configurato per questa stagione.'};
+    const remainingGames=Math.max(0,planned-played);
+    if(remainingGames>0&&average===null)return {...base,remainingGames,available:false,reason:'Non ci sono ancora partite con presenze registrate: media non disponibile.'};
+    const futureAppearances=remainingGames*(average||0);
+    const future=fromCents(Math.round(futureAppearances*cents(FEE_RATES.appearance)));
+    const projected=fromCents(cents(accrued)+cents(future));
+    const result=fromCents(cents(projected)-cents(summary.expenseTotal));
+    return {...base,available:true,remainingGames,futureAppearances,future,projected,result};
   }
   function financeSummary(){
     const moves=activeFin('Movimenti').filter(x=>x.seasonId===state.seasonId);
@@ -1228,7 +1259,11 @@
     if(!state.financeReady)return head+`<section class="panel"><p class="form-guide">Apri <strong>Spese società</strong> oppure premi Aggiorna per caricare l'archivio privato.</p></section>`;
     const s=financeSummary();
     const renderKpis=cards=>`<section class="finance-kpis">${cards.map(([label,value])=>`<div class="finance-kpi"><small>${esc(label)}</small><strong class="${value<0?'finance-negative':''}">${money(value)}</strong></div>`).join('')}</section>`;
-    let body=`<h2 class="panel-title">Competenza stagione · ${esc(activeSeason().name)}</h2><p class="notice">Solo entrate della stagione selezionata: esclusi arretrati e anticipi non ancora maturati.</p>`+renderKpis([['ENTRATE STAGIONALI PREVISTE',s.seasonIncomeTotal],['ENTRATE STAGIONALI INCASSATE',s.seasonIncomePaid],['QUOTE STAGIONALI DA INCASSARE',s.currentDuesPending],['SPESE PREVISTE',s.expenseTotal],['SPESE DA SALDARE',s.pendingExpense],['RISULTATO STAGIONALE PREVISTO',s.seasonResult]])+`<h2 class="panel-title mt-20">Arretrati delle stagioni precedenti</h2><p class="notice">Debiti Extra: recupero di quote pregresse, non entrate di competenza della stagione corrente. Per ogni atleta i versamenti coprono prima gli arretrati, poi le quote stagionali e infine generano credito.</p>`+renderKpis([['ARRETRATI TOTALI',s.arrearsDue],['ARRETRATI RECUPERATI',s.arrearsPaid],['ARRETRATI DA RECUPERARE',s.arrearsPending]])+`<h2 class="panel-title mt-20">Cassa effettiva</h2><p class="notice">Comprende tutte le somme incassate nella contabilità della stagione selezionata, inclusi gli arretrati recuperati e gli anticipi dei giocatori. Non è un saldo bancario cumulato tra stagioni.</p>`+renderKpis([['INCASSI COMPLESSIVI',s.cashIncome],['USCITE PAGATE',s.expensePaid],['SALDO DI CASSA',s.balance],['CREDITO GIOCATORI',s.duesCredit]]);
+    const forecast=financeForecast(state.seasonId,s);
+    const forecastCards=[['ENTRATE MATURATE / REGISTRATE AD OGGI',forecast.accrued??s.seasonIncomeTotal]];
+    if(forecast.available)forecastCards.push(['ENTRATE FUTURE STIMATE',forecast.future],['ENTRATE PREVISTE A FINE STAGIONE',forecast.projected],['SPESE COMPLESSIVE REGISTRATE',s.expenseTotal],['RISULTATO PREVISTO A FINE STAGIONE',forecast.result]);
+    else forecastCards.push(['SPESE COMPLESSIVE REGISTRATE',s.expenseTotal]);
+    let body=`<h2 class="panel-title">Proiezione economica · ${esc(activeSeason().name)}</h2><p class="notice">${forecast.available?'Gare con presenze: '+forecast.played+' / '+forecast.planned+' · Gare rimanenti: '+forecast.remainingGames+' · Media tesserati in campo: '+(forecast.average===null?'—':forecast.average.toLocaleString('it-IT',{minimumFractionDigits:2,maximumFractionDigits:2}))+' · Presenze future stimate: '+forecast.futureAppearances.toLocaleString('it-IT',{maximumFractionDigits:1})+'.':'Proiezione non disponibile: '+esc(forecast.reason)} La stima mantiene il numero di tesserati, la media attuale e le spese registrate. Comprende le altre entrate societarie già inserite, esclude arretrati e anticipi non maturati. Non stima spese non ancora inserite.</p>`+(forecast.syncNeeded?'<p class="notice finance-sync-needed">Le quote maturate secondo le statistiche e la tariffa attuale differiscono dal registro salvato. Premi Sincronizza quote per aggiornare gli importi individuali e i saldi contabili.</p>':'')+renderKpis(forecastCards)+`<h2 class="panel-title mt-20">Contabilità registrata · ${esc(activeSeason().name)}</h2><p class="notice">Valori effettivamente registrati nel foglio contabile, distinti dalla proiezione futura.</p>`+renderKpis([['ENTRATE STAGIONALI REGISTRATE',s.seasonIncomeTotal],['ENTRATE STAGIONALI INCASSATE',s.seasonIncomePaid],['QUOTE STAGIONALI DA INCASSARE',s.currentDuesPending],['SPESE DA SALDARE',s.pendingExpense]])+`<h2 class="panel-title mt-20">Arretrati delle stagioni precedenti</h2><p class="notice">Debiti Extra: recupero di quote pregresse, non entrate di competenza della stagione corrente. Per ogni atleta i versamenti coprono prima gli arretrati, poi le quote stagionali e infine generano credito.</p>`+renderKpis([['ARRETRATI TOTALI',s.arrearsDue],['ARRETRATI RECUPERATI',s.arrearsPaid],['ARRETRATI DA RECUPERARE',s.arrearsPending]])+`<h2 class="panel-title mt-20">Cassa effettiva</h2><p class="notice">Comprende tutte le somme incassate nella contabilità della stagione selezionata, inclusi gli arretrati recuperati e gli anticipi dei giocatori. Non è un saldo bancario cumulato tra stagioni.</p>`+renderKpis([['INCASSI COMPLESSIVI',s.cashIncome],['USCITE PAGATE',s.expensePaid],['SALDO DI CASSA',s.balance],['CREDITO GIOCATORI',s.duesCredit]]);
     body+=`<div class="finance-toolbar"><button class="btn ${state.financeTab==='movimenti'?'btn-primary':'btn-secondary'}" data-action="finance-tab" data-tab="movimenti">Movimenti società</button><button class="btn ${state.financeTab==='quote'?'btn-primary':'btn-secondary'}" data-action="finance-tab" data-tab="quote">Quote giocatori</button><button class="btn ${state.financeTab==='categorie'?'btn-primary':'btn-secondary'}" data-action="finance-tab" data-tab="categorie">Categorie</button><button class="btn ${state.financeTab==='storico'?'btn-primary':'btn-secondary'}" data-action="finance-tab" data-tab="storico">Storico e annullati</button></div>`;
     if(state.financeTab==='movimenti'){
       const rows=activeFin('Movimenti').filter(r=>r.seasonId===state.seasonId).sort((a,b)=>b.date.localeCompare(a.date));
@@ -1236,7 +1271,7 @@
     }else if(state.financeTab==='quote'){
       const registered=financeRegistered(state.seasonId);
       const rows=activeFin('QuoteAtleti').filter(r=>r.seasonId===state.seasonId&&registered.has(r.playerId)).sort((a,b)=>financePlayerName(a.playerId).localeCompare(financePlayerName(b.playerId),'it'));
-      body+=`<section class="panel"><div class="panel-heading"><h2 class="panel-title">Quote individuali · ${esc(activeSeason().name)}</h2><div class="finance-actions"><button class="btn btn-secondary" data-action="finance-sync-fixed">↻ Sincronizza quote</button><button class="btn btn-primary" data-action="finance-fee">＋ Aggiungi debito extra</button></div></div><p class="notice"><strong>Regola fissa:</strong> Solo per i tesserati CSI: 15 € di iscrizione, 13 € di tesseramento e 5 € per ogni presenza stagionale effettiva. I non tesserati non maturano quote automatiche e non compaiono nella lista. Le sole convocazioni non producono addebiti. I Debiti Extra sono arretrati di stagioni precedenti: concorrono al saldo individuale, ma sono contabilizzati a parte e non costituiscono entrate della stagione corrente. Il credito di un atleta compensa tutte le sue quote della stagione, comprese quelle future dopo la sincronizzazione. Non trasferire due volte gli arretrati. Eventuali posizioni contabili dei non tesserati sono conservate in Storico e annullati, senza alterare gli incassi. Sincronizza per aggiornare gli importi.</p>${renderPlayerBalances()}<details class="mt-20"><summary><strong>Dettaglio singole voci e storico versamenti</strong></summary><p class="notice">I residui e i crediti qui sotto sono riferiti alle singole voci, prima della compensazione individuale. Per il saldo effettivo usa la tabella sopra.</p>${renderFeeDetails(rows)}</details><p class="notice">Le quote previste non sono incassi. Entrano nel saldo soltanto i versamenti realmente registrati.</p></section>`;
+      body+=`<section class="panel"><div class="panel-heading"><h2 class="panel-title">Quote individuali · ${esc(activeSeason().name)}</h2><div class="finance-actions"><button class="btn btn-secondary" data-action="finance-sync-fixed">↻ Sincronizza quote</button><button class="btn btn-primary" data-action="finance-fee">＋ Aggiungi debito extra</button></div></div><p class="notice"><strong>Regola fissa:</strong> Solo per i tesserati CSI: 15 € di iscrizione, 13 € di tesseramento e 6 € per ogni presenza stagionale effettiva (affitto campo e pagamento arbitro inclusi). I non tesserati non maturano quote automatiche e non compaiono nella lista. Le sole convocazioni non producono addebiti. I Debiti Extra sono arretrati di stagioni precedenti: concorrono al saldo individuale, ma sono contabilizzati a parte e non costituiscono entrate della stagione corrente. Il credito di un atleta compensa tutte le sue quote della stagione, comprese quelle future dopo la sincronizzazione. Non trasferire due volte gli arretrati. Eventuali posizioni contabili dei non tesserati sono conservate in Storico e annullati, senza alterare gli incassi. Sincronizza per aggiornare gli importi.</p>${renderPlayerBalances()}<details class="mt-20"><summary><strong>Dettaglio singole voci e storico versamenti</strong></summary><p class="notice">I residui e i crediti qui sotto sono riferiti alle singole voci, prima della compensazione individuale. Per il saldo effettivo usa la tabella sopra.</p>${renderFeeDetails(rows)}</details><p class="notice">Le quote previste non sono incassi. Entrano nel saldo soltanto i versamenti realmente registrati.</p></section>`;
     }else if(state.financeTab==='storico'){
       if(state.athleteReady){
         const registered=financeRegistered(state.seasonId);
