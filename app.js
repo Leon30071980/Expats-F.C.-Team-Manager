@@ -1,4 +1,4 @@
-/* EXPATS F.C. TEAM MANAGER — v1.42
+/* EXPATS F.C. TEAM MANAGER — v1.43
  * Frontend statico GitHub Pages + Google Sheets API (edit via OAuth) + GViz JSONP (pubblico).
  * Il controllo delle modifiche dipende dai permessi Google Drive sul foglio.
  */
@@ -6,7 +6,7 @@
   'use strict';
   const CFG = window.EXPATS_CONFIG;
   const SHEETS = ['Giocatori','Stagioni','Partite','Distinte','Pregresso','Tesseramenti','Ruoli','Stati','CampionatoClassifica','CampionatoPartite','CampionatoWidget','Formazioni','FormazioniPartite','EventiGol','IdoneitaRosa','FormazioniArchivio'];
-  const VERSION='v1.42';
+  const VERSION='v1.43';
   const FORMATION_SHEETS=new Set(['Formazioni','FormazioniPartite','FormazioniArchivio']);
   const PUBLIC_SHEETS=SHEETS.filter(s=>!FORMATION_SHEETS.has(s));
   const defaultCallable=label=>!/infortun|assen|ritirat|squalificat|sospes|cert.*med.*(?:scadut|mancant)|non.*tesserat|non.*verificat/i.test(String(label||'').normalize('NFD').replace(/[\u0300-\u036f]/g,''));
@@ -1034,6 +1034,48 @@
   const finSelect=(name,options,sel)=>`<select class="form-control" name="${name}">${options.map(([v,t])=>`<option value="${esc(v)}" ${v===sel?'selected':''}>${esc(t)}</option>`).join('')}</select>`;
   const financeCategoryName=id=>finRows('Categorie').find(x=>x.id===id)?.name||id||'Senza categoria';
   const financePlayerName=id=>{const p=state.data.players.find(p=>p.id===id);return p?name(p):'Giocatore non presente';};
+
+  // Quota fissa: 20 EUR tesseramento CSI + 10 EUR per presenza effettiva.
+  const FIXED_FEE_TITLE='Quota regolamento - tesseramento e presenze';
+  function fixedFeeChanges(){
+    if(!state.athleteReady)throw new Error('Dati Atleti non caricati: impossibile verificare il tesseramento CSI.');
+    const played=new Map(statsForSeason(state.seasonId).map(p=>[p.id,positiveInt(p.played)]));
+    const registered=new Set(state.athleteRecords.filter(r=>r.seasonId===state.seasonId&&r.csi).map(r=>r.playerId));
+    const planned=state.data.players.map(p=>({id:p.id,appearances:played.get(p.id)||0,csi:registered.has(p.id)}))
+      .map(p=>({...p,amount:(p.csi?20:0)+10*p.appearances})).filter(p=>p.amount>0);
+    const existing=activeFin('QuoteAtleti').filter(q=>q.seasonId===state.seasonId&&q.description===FIXED_FEE_TITLE);
+    if(new Set(existing.map(q=>q.playerId)).size!==existing.length)throw new Error('Quote automatiche duplicate: verifica il foglio privato.');
+    const entries=[],blocked=[],expected=new Set(planned.map(p=>p.id));
+    for(const p of planned){
+      const old=existing.find(q=>q.playerId===p.id);
+      if(old&&cents(old.amount)===cents(p.amount))continue;
+      if(old&&cents(paymentTotal('PagamentiQuote','feeId',old.id))>cents(p.amount)){blocked.push(financePlayerName(p.id));continue;}
+      entries.push({sheet:'QuoteAtleti',values:[old?.id||uid('quota'),state.seasonId,p.id,FIXED_FEE_TITLE,p.amount,'','CSI '+(p.csi?'regolare':'non regolare')+'; presenze '+p.appearances,1],previous:old?rawFin('QuoteAtleti',old.id):null,reason:'Tariffa fissa 20 EUR CSI + 10 EUR presenza'});
+    }
+    for(const old of existing.filter(q=>!expected.has(q.playerId))){
+      if(cents(paymentTotal('PagamentiQuote','feeId',old.id))>0){blocked.push(financePlayerName(old.playerId));continue;}
+      entries.push({sheet:'QuoteAtleti',values:[old.id,old.seasonId,old.playerId,old.description,old.amount,old.due,old.note,0],previous:rawFin('QuoteAtleti',old.id),reason:'Nessuna quota dovuta per tesseramento o presenze'});
+    }
+    return {entries,blocked};
+  }
+  async function syncFixedFees(){
+    if(!isFinAdmin()||state.busy||!state.financeReady)return;
+    state.busy=true;
+    try{
+      const result=fixedFeeChanges();
+      if(result.blocked.length)throw new Error('Importi già versati superiori al nuovo dovuto per: '+result.blocked.join(', ')+'. Verifica eventuali rimborsi.');
+      if(!result.entries.length){toast('Le quote sono già aggiornate.');return;}
+      if(!window.confirm('Sincronizzare '+result.entries.length+' quote con la tariffa 20 EUR CSI + 10 EUR per presenza? I versamenti esistenti saranno conservati.'))return;
+      await financeLocked(async lockId=>{
+        const next=fixedFeeChanges();
+        if(next.blocked.length)throw new Error('Versamenti superiori al nuovo dovuto: '+next.blocked.join(', '));
+        for(const e of next.entries)validateFinanceWrite(e.sheet,e.values,e.previous,true);
+        if(next.entries.length)await financeCommit(next.entries,lockId);
+      });
+      toast('Quote fisse sincronizzate con successo.');
+    }catch(error){toast('Sincronizzazione fallita: '+safeError(error),true);}
+    finally{state.busy=false;render();}
+  }
   function financeSummary(){
     const moves=activeFin('Movimenti').filter(x=>x.seasonId===state.seasonId);
     const dues=activeFin('QuoteAtleti').filter(x=>x.seasonId===state.seasonId);
@@ -1081,7 +1123,7 @@
       body+=`<section class="panel"><div class="panel-heading"><h2 class="panel-title">Entrate e uscite · ${esc(activeSeason().name)}</h2><button class="btn btn-primary" data-action="finance-movement">＋ Nuovo movimento</button></div><div class="table-shell"><table class="data-table finance-table"><thead><tr><th>Data</th><th>Descrizione</th><th>Tipo / categoria</th><th>Importo</th><th>Pagato</th><th>Residuo</th><th>Stato</th><th>Azioni</th></tr></thead><tbody>${rows.map(r=>{const total=movementTotal(r),paid=paymentTotal('PagamentiMovimenti','movementId',r.id),rem=remaining(total,paid);return `<tr><td>${esc(localeDate(r.date))}</td><td><strong>${esc(r.description)}</strong>${r.due?`<small>Scadenza: ${esc(localeDate(r.due))}</small>`:''}${r.documentUrl&&/^https:\/\//.test(r.documentUrl)?`<small><a href="${esc(r.documentUrl)}" target="_blank" rel="noopener noreferrer">Documento ↗</a></small>`:''}</td><td>${r.type==='ENTRATA'?'Entrata':'Uscita'}<small>${esc(financeCategoryName(r.category))}</small></td><td>${money(total)}</td><td>${money(paid)}</td><td>${money(rem)}</td><td>${finDueLabel(total,paid,r.due)}</td><td><div class="finance-actions"><button class="btn btn-secondary btn-small" data-action="finance-movement" data-id="${esc(r.id)}">Modifica</button><button class="btn btn-secondary btn-small" data-action="finance-pay-movement" data-id="${esc(r.id)}" ${rem<=0?'disabled':''}>Pagamento</button><button class="btn btn-secondary btn-small" data-action="finance-history" data-kind="movement" data-id="${esc(r.id)}">Storico</button><button class="btn btn-danger btn-small" data-action="finance-remove" data-kind="Movimenti" data-id="${esc(r.id)}">Annulla</button></div></td></tr>`}).join('')||'<tr><td colspan="8">Nessun movimento per questa stagione.</td></tr>'}</tbody></table></div><p class="notice">Gli importi versati sono registrati separatamente. Per una sponsorizzazione crea un'Entrata, non una spesa negativa.</p></section>`;
     }else if(state.financeTab==='quote'){
       const rows=activeFin('QuoteAtleti').filter(r=>r.seasonId===state.seasonId).sort((a,b)=>financePlayerName(a.playerId).localeCompare(financePlayerName(b.playerId),'it'));
-      body+=`<section class="panel"><div class="panel-heading"><h2 class="panel-title">Quote individuali · ${esc(activeSeason().name)}</h2><div class="finance-actions"><button class="btn btn-secondary" data-action="finance-fee-bulk">＋ Quota a tutta la rosa</button><button class="btn btn-primary" data-action="finance-fee">＋ Assegna quota</button></div></div><div class="table-shell"><table class="data-table finance-table"><thead><tr><th>Atleta</th><th>Quota</th><th>Dovuto</th><th>Versato</th><th>Residuo</th><th>Scadenza</th><th>Stato</th><th>Azioni</th></tr></thead><tbody>${rows.map(r=>{const paid=paymentTotal('PagamentiQuote','feeId',r.id),rem=remaining(r.amount,paid);return `<tr><td><strong>${esc(financePlayerName(r.playerId))}</strong></td><td>${esc(r.description)}</td><td>${money(r.amount)}</td><td>${money(paid)}</td><td>${money(rem)}</td><td>${r.due?esc(localeDate(r.due)):'—'}</td><td>${finDueLabel(r.amount,paid,r.due)}</td><td><div class="finance-actions"><button class="btn btn-secondary btn-small" data-action="finance-fee" data-id="${esc(r.id)}">Modifica</button><button class="btn btn-secondary btn-small" data-action="finance-pay-fee" data-id="${esc(r.id)}" ${rem<=0?'disabled':''}>Versamento</button><button class="btn btn-secondary btn-small" data-action="finance-history" data-kind="fee" data-id="${esc(r.id)}">Storico</button><button class="btn btn-danger btn-small" data-action="finance-remove" data-kind="QuoteAtleti" data-id="${esc(r.id)}">Annulla</button></div></td></tr>`}).join('')||'<tr><td colspan="8">Non sono state assegnate quote individuali a questa stagione.</td></tr>'}</tbody></table></div><p class="notice">Le quote previste non sono incassi. Entrano nel saldo soltanto i versamenti realmente registrati.</p></section>`;
+      body+=`<section class="panel"><div class="panel-heading"><h2 class="panel-title">Quote individuali · ${esc(activeSeason().name)}</h2><div class="finance-actions"><button class="btn btn-primary" data-action="finance-sync-fixed">↻ Sincronizza quote</button></div></div><div class="table-shell"><table class="data-table finance-table"><thead><tr><th>Atleta</th><th>Quota</th><th>Dovuto</th><th>Versato</th><th>Residuo</th><th>Scadenza</th><th>Stato</th><th>Azioni</th></tr></thead><tbody>${rows.map(r=>{const paid=paymentTotal('PagamentiQuote','feeId',r.id),rem=remaining(r.amount,paid);return `<tr><td><strong>${esc(financePlayerName(r.playerId))}</strong></td><td>${esc(r.description)}</td><td>${money(r.amount)}</td><td>${money(paid)}</td><td>${money(rem)}</td><td>${r.due?esc(localeDate(r.due)):'—'}</td><td>${finDueLabel(r.amount,paid,r.due)}</td><td><div class="finance-actions"><button class="btn btn-secondary btn-small" data-action="finance-fee" data-id="${esc(r.id)}">Modifica</button><button class="btn btn-secondary btn-small" data-action="finance-pay-fee" data-id="${esc(r.id)}" ${rem<=0?'disabled':''}>Versamento</button><button class="btn btn-secondary btn-small" data-action="finance-history" data-kind="fee" data-id="${esc(r.id)}">Storico</button><button class="btn btn-danger btn-small" data-action="finance-remove" data-kind="QuoteAtleti" data-id="${esc(r.id)}">Annulla</button></div></td></tr>`}).join('')||'<tr><td colspan="8">Non sono state assegnate quote individuali a questa stagione.</td></tr>'}</tbody></table></div><p class="notice">Le quote previste non sono incassi. Entrano nel saldo soltanto i versamenti realmente registrati.</p></section>`;
     }else if(state.financeTab==='storico'){
       const inactive=[...finRows('Movimenti').filter(r=>!r.active&&r.seasonId===state.seasonId).map(r=>({id:r.id,label:r.description,amount:movementTotal(r),kind:'movement'})),...finRows('QuoteAtleti').filter(r=>!r.active&&r.seasonId===state.seasonId).map(r=>({id:r.id,label:financePlayerName(r.playerId)+' · '+r.description,amount:r.amount,kind:'fee'}))];
       const logs=finRows('LogRevisioniContabili').slice().reverse();
@@ -1186,8 +1228,9 @@
     try{await googleAPI(':batchUpdate',{spreadsheetId:CFG.financeSpreadsheetId,method:'POST',body:JSON.stringify({requests})});}catch(err){throw new Error('Salvataggio non confermato. Aggiorna e verifica il registro prima di riprovare: '+safeError(err));}
     await loadFinancePrivate();
   }
-  function validateFinanceWrite(sheet,values,previous){
+  function validateFinanceWrite(sheet,values,previous,automatic=false){
     const [id,link]=values;
+    if(sheet==='QuoteAtleti'&&!automatic&&(String(values[3])===FIXED_FEE_TITLE||String(previous?.Descrizione)===FIXED_FEE_TITLE))throw new Error('Quota automatica non modificabile manualmente.');
     const isPayment=sheet==='PagamentiQuote'||sheet==='PagamentiMovimenti';
     if(isPayment&&one(values[6])){
       const fee=sheet==='PagamentiQuote';
@@ -1284,6 +1327,7 @@
         values=[old?.id||uid('mov'),old?.seasonId||state.seasonId, f.date||now,title,f.category||'',type,unit,qty,f.due||'',String(f.note||'').slice(0,500),url,1];
       }else if(kind==='fee'){
         sheet='QuoteAtleti';old=finRows(sheet).find(r=>r.id===id);
+        if(old?.description===FIXED_FEE_TITLE)throw new Error('Usa Sincronizza quote per modificare la quota automatica.');
         if(!state.data.players.some(p=>p.id===f.playerId))throw new Error('Giocatore non valido.');
         const amount=finPositive(f.amount,'Importo quota');
         if(amount<paymentTotal('PagamentiQuote','feeId',id))throw new Error('La quota non può essere inferiore ai versamenti già registrati.');
@@ -1335,6 +1379,7 @@
   async function financeRemove(kind,id){
     if(!isFinAdmin()||state.busy||!['Movimenti','QuoteAtleti'].includes(kind))return;
     const item=finRows(kind).find(x=>x.id===id&&x.active);if(!item)return;
+    if(kind==='QuoteAtleti'&&item.description===FIXED_FEE_TITLE){toast('Quota automatica: modifica presenze o tesseramento e sincronizza.',true);return;}
     const isFee=kind==='QuoteAtleti',paid=paymentTotal(isFee?'PagamentiQuote':'PagamentiMovimenti',isFee?'feeId':'movementId',id);
     if(cents(paid)>0){toast('Voce con versamenti registrati: non può essere annullata. Correggi prima i pagamenti nel foglio privato.',true);return;}
     if(!window.confirm('Annullare questa voce? Lo storico rimarrà nel foglio privato.'))return;
@@ -2322,6 +2367,7 @@
     else if(action==='formation-refresh'){loadFormationPrivate().then(render);}
     else if(action==='finance-tab'){state.financeTab=btn.dataset.tab||'movimenti';render();}
     else if(action==='finance-refresh')loadFinancePrivate();
+    else if(action==='finance-sync-fixed')syncFixedFees();
     else if(action==='finance-export')financeExport();
     else if(action==='finance-movement')financeMovementForm(btn.dataset.id||'');
     else if(action==='finance-fee')financeFeeForm(btn.dataset.id||'');
