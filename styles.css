@@ -881,3 +881,15 @@ button,input,select,textarea{font-family:inherit}
 .data-table details summary{cursor:pointer;color:var(--accent,#64d9bb);font-weight:700;}
 .data-table details p{font-size:.8rem;line-height:1.35;margin:.45rem 0;}
 .formation-call-row:has(input:disabled){opacity:.65;cursor:not-allowed;}
+
+
+/* v1.46 - saldi giocatori: debito rosso, credito verde, in pari neutro. */
+.finance-balances th small{display:block;font-size:10px;letter-spacing:0;text-transform:none;color:#a2b5ce;margin-top:4px;font-weight:600}
+.finance-balances td{font-variant-numeric:tabular-nums}
+.finance-balances tr.finance-balance-debt td:first-child{box-shadow:inset 3px 0 #ff8495}
+.finance-balances tr.finance-balance-credit td:first-child{box-shadow:inset 3px 0 #44dda0}
+.finance-balances tr.finance-balance-settled td:first-child{box-shadow:inset 3px 0 #8193ab}
+.finance-balances td.finance-debt-value,.finance-balances tr:hover td.finance-debt-value{color:#ffb0bc;background:#542836;font-weight:800}
+.finance-balances td.finance-credit-value,.finance-balances tr:hover td.finance-credit-value{color:#91f5c5;background:#164638;font-weight:800}
+.finance-balances td.finance-zero-value{color:#8193ab}
+.finance-sync-needed{color:#ffd292;font-weight:700}
