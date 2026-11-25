@@ -1,4 +1,4 @@
-/* EXPATS F.C. TEAM MANAGER — v1.43
+/* EXPATS F.C. TEAM MANAGER — v1.44
  * Frontend statico GitHub Pages + Google Sheets API (edit via OAuth) + GViz JSONP (pubblico).
  * Il controllo delle modifiche dipende dai permessi Google Drive sul foglio.
  */
@@ -6,7 +6,7 @@
   'use strict';
   const CFG = window.EXPATS_CONFIG;
   const SHEETS = ['Giocatori','Stagioni','Partite','Distinte','Pregresso','Tesseramenti','Ruoli','Stati','CampionatoClassifica','CampionatoPartite','CampionatoWidget','Formazioni','FormazioniPartite','EventiGol','IdoneitaRosa','FormazioniArchivio'];
-  const VERSION='v1.43';
+  const VERSION='v1.44';
   const FORMATION_SHEETS=new Set(['Formazioni','FormazioniPartite','FormazioniArchivio']);
   const PUBLIC_SHEETS=SHEETS.filter(s=>!FORMATION_SHEETS.has(s));
   const defaultCallable=label=>!/infortun|assen|ritirat|squalificat|sospes|cert.*med.*(?:scadut|mancant)|non.*tesserat|non.*verificat/i.test(String(label||'').normalize('NFD').replace(/[\u0300-\u036f]/g,''));
@@ -1022,8 +1022,10 @@
   const paymentTotal=(sheet,field,id)=>fromCents(activeFin(sheet).filter(p=>p[field]===id).reduce((a,p)=>a+cents(p.amount),0));
   const movementTotal=m=>fromCents(cents(m.unit)*num(m.qty));
   const remaining=(total,paid)=>fromCents(Math.max(0,cents(total)-cents(paid)));
+  const feeCredit=(total,paid)=>remaining(paid,total);
   const finIsoToday=()=>new Date().toLocaleDateString('sv-SE',{timeZone:'Europe/Rome'});
-  const finDueLabel=(total,paid,due)=>{
+  const finDueLabel=(total,paid,due,fee=false)=>{
+    if(fee&&cents(paid)>cents(total))return '<span class="chip success">A credito</span>';
     if(cents(paid)>=cents(total))return '<span class="chip success">Saldato</span>';
     if(due && due<finIsoToday())return '<span class="chip danger">Scaduto</span>';
     if(cents(paid)>0)return '<span class="chip warning">Parziale</span>';
@@ -1042,33 +1044,34 @@
     const played=new Map(statsForSeason(state.seasonId).map(p=>[p.id,positiveInt(p.played)]));
     const registered=new Set(state.athleteRecords.filter(r=>r.seasonId===state.seasonId&&r.csi).map(r=>r.playerId));
     const planned=state.data.players.map(p=>({id:p.id,appearances:played.get(p.id)||0,csi:registered.has(p.id)}))
-      .map(p=>({...p,amount:(p.csi?20:0)+10*p.appearances})).filter(p=>p.amount>0);
+      .map(p=>({...p,amount:(p.csi?20:0)+10*p.appearances})).filter(p=>p.amount>0||isMember(p.id,state.seasonId));
     const existing=activeFin('QuoteAtleti').filter(q=>q.seasonId===state.seasonId&&q.description===FIXED_FEE_TITLE);
     if(new Set(existing.map(q=>q.playerId)).size!==existing.length)throw new Error('Quote automatiche duplicate: verifica il foglio privato.');
-    const entries=[],blocked=[],expected=new Set(planned.map(p=>p.id));
+    const entries=[],expected=new Set(planned.map(p=>p.id));
     for(const p of planned){
       const old=existing.find(q=>q.playerId===p.id);
       if(old&&cents(old.amount)===cents(p.amount))continue;
-      if(old&&cents(paymentTotal('PagamentiQuote','feeId',old.id))>cents(p.amount)){blocked.push(financePlayerName(p.id));continue;}
       entries.push({sheet:'QuoteAtleti',values:[old?.id||uid('quota'),state.seasonId,p.id,FIXED_FEE_TITLE,p.amount,'','CSI '+(p.csi?'regolare':'non regolare')+'; presenze '+p.appearances,1],previous:old?rawFin('QuoteAtleti',old.id):null,reason:'Tariffa fissa 20 EUR CSI + 10 EUR presenza'});
     }
     for(const old of existing.filter(q=>!expected.has(q.playerId))){
-      if(cents(paymentTotal('PagamentiQuote','feeId',old.id))>0){blocked.push(financePlayerName(old.playerId));continue;}
+      const paid=paymentTotal('PagamentiQuote','feeId',old.id);
+      if(cents(paid)>0){
+        if(cents(old.amount)!==0)entries.push({sheet:'QuoteAtleti',values:[old.id,old.seasonId,old.playerId,old.description,0,old.due,old.note,1],previous:rawFin('QuoteAtleti',old.id),reason:'Dovuto azzerato; credito atleta conservato'});
+        continue;
+      }
       entries.push({sheet:'QuoteAtleti',values:[old.id,old.seasonId,old.playerId,old.description,old.amount,old.due,old.note,0],previous:rawFin('QuoteAtleti',old.id),reason:'Nessuna quota dovuta per tesseramento o presenze'});
     }
-    return {entries,blocked};
+    return {entries};
   }
   async function syncFixedFees(){
     if(!isFinAdmin()||state.busy||!state.financeReady)return;
     state.busy=true;
     try{
       const result=fixedFeeChanges();
-      if(result.blocked.length)throw new Error('Importi già versati superiori al nuovo dovuto per: '+result.blocked.join(', ')+'. Verifica eventuali rimborsi.');
       if(!result.entries.length){toast('Le quote sono già aggiornate.');return;}
       if(!window.confirm('Sincronizzare '+result.entries.length+' quote con la tariffa 20 EUR CSI + 10 EUR per presenza? I versamenti esistenti saranno conservati.'))return;
       await financeLocked(async lockId=>{
         const next=fixedFeeChanges();
-        if(next.blocked.length)throw new Error('Versamenti superiori al nuovo dovuto: '+next.blocked.join(', '));
         for(const e of next.entries)validateFinanceWrite(e.sheet,e.values,e.previous,true);
         if(next.entries.length)await financeCommit(next.entries,lockId);
       });
@@ -1087,21 +1090,23 @@
     const totals={expenseTotal:summed(expense),expensePaid:paid(expense),incomeTotal:summed(income),incomePaid:paid(income),duesTotal:duesTarget,duesPaid};
     totals.pendingExpense=remaining(totals.expenseTotal,totals.expensePaid);
     totals.pendingIncome=remaining(totals.incomeTotal,totals.incomePaid);
-    totals.pendingDues=remaining(totals.duesTotal,totals.duesPaid);
+    // Non compensare i debiti di un atleta con gli anticipi di un altro.
+    totals.pendingDues=fromCents(dues.reduce((a,d)=>a+cents(remaining(d.amount,paymentTotal('PagamentiQuote','feeId',d.id))),0));
+    totals.duesCredit=fromCents(dues.reduce((a,d)=>a+cents(feeCredit(d.amount,paymentTotal('PagamentiQuote','feeId',d.id))),0));
     totals.balance=fromCents(cents(totals.incomePaid)+cents(totals.duesPaid)-cents(totals.expensePaid));
     return totals;
   }
   const csvEscape=v=>'"'+String(v??'').replaceAll('"','""')+'"';
   function financeExport(){
     if(!isFinAdmin()||!state.financeReady)return;
-    const rows=[['TIPO','DATA','DESCRIZIONE','CATEGORIA','IMPORTO','PAGATO','RESIDUO','SCADENZA']];
+    const rows=[['TIPO','DATA','DESCRIZIONE','CATEGORIA','IMPORTO','PAGATO','RESIDUO','SCADENZA','CREDITO ATLETA']];
     for(const m of activeFin('Movimenti').filter(x=>x.seasonId===state.seasonId)){
       const total=movementTotal(m),paid=paymentTotal('PagamentiMovimenti','movementId',m.id);
-      rows.push([m.type,m.date,m.description,financeCategoryName(m.category),total,paid,remaining(total,paid),m.due]);
+      rows.push([m.type,m.date,m.description,financeCategoryName(m.category),total,paid,remaining(total,paid),m.due,0]);
     }
     for(const q of activeFin('QuoteAtleti').filter(x=>x.seasonId===state.seasonId)){
       const paid=paymentTotal('PagamentiQuote','feeId',q.id);
-      rows.push(['QUOTA ATLETA','',financePlayerName(q.playerId)+' · '+q.description,'Quote',q.amount,paid,remaining(q.amount,paid),q.due]);
+      rows.push(['QUOTA ATLETA','',financePlayerName(q.playerId)+' · '+q.description,'Quote',q.amount,paid,remaining(q.amount,paid),q.due,feeCredit(q.amount,paid)]);
     }
     const blob=new Blob(['\ufeff'+rows.map(r=>r.map(csvEscape).join(';')).join('\r\n')],{type:'text/csv;charset=utf-8'});
     const url=URL.createObjectURL(blob),link=el('a',{href:url,download:`Expats-contabilita-${activeSeason().name.replace('/','-')}.csv`});
@@ -1115,7 +1120,7 @@
     if(state.financeError)return head+`<section class="panel"><p class="import-error">${esc(state.financeError)}</p><p class="form-guide">Controlla le intestazioni e i permessi del foglio Google privato.</p><button class="btn btn-secondary" data-action="finance-refresh">Riprova</button></section>`;
     if(!state.financeReady)return head+`<section class="panel"><p class="form-guide">Apri <strong>Spese società</strong> oppure premi Aggiorna per caricare l'archivio privato.</p></section>`;
     const s=financeSummary();
-    const cards=[['SPESE PREVISTE',s.expenseTotal],['USCITE PAGATE',s.expensePaid],['ENTRATE INCASSATE',s.incomePaid+s.duesPaid],['SALDO DI CASSA',s.balance],['SPESE DA SALDARE',s.pendingExpense],['QUOTE DA INCASSARE',s.pendingDues]];
+    const cards=[['SPESE PREVISTE',s.expenseTotal],['USCITE PAGATE',s.expensePaid],['ENTRATE INCASSATE',s.incomePaid+s.duesPaid],['SALDO DI CASSA',s.balance],['SPESE DA SALDARE',s.pendingExpense],['QUOTE DA INCASSARE',s.pendingDues],['CREDITO GIOCATORI',s.duesCredit]];
     let body=`<section class="finance-kpis">${cards.map(([label,value])=>`<div class="finance-kpi"><small>${esc(label)}</small><strong class="${value<0?'finance-negative':''}">${money(value)}</strong></div>`).join('')}</section>`;
     body+=`<div class="finance-toolbar"><button class="btn ${state.financeTab==='movimenti'?'btn-primary':'btn-secondary'}" data-action="finance-tab" data-tab="movimenti">Movimenti società</button><button class="btn ${state.financeTab==='quote'?'btn-primary':'btn-secondary'}" data-action="finance-tab" data-tab="quote">Quote giocatori</button><button class="btn ${state.financeTab==='categorie'?'btn-primary':'btn-secondary'}" data-action="finance-tab" data-tab="categorie">Categorie</button><button class="btn ${state.financeTab==='storico'?'btn-primary':'btn-secondary'}" data-action="finance-tab" data-tab="storico">Storico e annullati</button></div>`;
     if(state.financeTab==='movimenti'){
@@ -1123,7 +1128,7 @@
       body+=`<section class="panel"><div class="panel-heading"><h2 class="panel-title">Entrate e uscite · ${esc(activeSeason().name)}</h2><button class="btn btn-primary" data-action="finance-movement">＋ Nuovo movimento</button></div><div class="table-shell"><table class="data-table finance-table"><thead><tr><th>Data</th><th>Descrizione</th><th>Tipo / categoria</th><th>Importo</th><th>Pagato</th><th>Residuo</th><th>Stato</th><th>Azioni</th></tr></thead><tbody>${rows.map(r=>{const total=movementTotal(r),paid=paymentTotal('PagamentiMovimenti','movementId',r.id),rem=remaining(total,paid);return `<tr><td>${esc(localeDate(r.date))}</td><td><strong>${esc(r.description)}</strong>${r.due?`<small>Scadenza: ${esc(localeDate(r.due))}</small>`:''}${r.documentUrl&&/^https:\/\//.test(r.documentUrl)?`<small><a href="${esc(r.documentUrl)}" target="_blank" rel="noopener noreferrer">Documento ↗</a></small>`:''}</td><td>${r.type==='ENTRATA'?'Entrata':'Uscita'}<small>${esc(financeCategoryName(r.category))}</small></td><td>${money(total)}</td><td>${money(paid)}</td><td>${money(rem)}</td><td>${finDueLabel(total,paid,r.due)}</td><td><div class="finance-actions"><button class="btn btn-secondary btn-small" data-action="finance-movement" data-id="${esc(r.id)}">Modifica</button><button class="btn btn-secondary btn-small" data-action="finance-pay-movement" data-id="${esc(r.id)}" ${rem<=0?'disabled':''}>Pagamento</button><button class="btn btn-secondary btn-small" data-action="finance-history" data-kind="movement" data-id="${esc(r.id)}">Storico</button><button class="btn btn-danger btn-small" data-action="finance-remove" data-kind="Movimenti" data-id="${esc(r.id)}">Annulla</button></div></td></tr>`}).join('')||'<tr><td colspan="8">Nessun movimento per questa stagione.</td></tr>'}</tbody></table></div><p class="notice">Gli importi versati sono registrati separatamente. Per una sponsorizzazione crea un'Entrata, non una spesa negativa.</p></section>`;
     }else if(state.financeTab==='quote'){
       const rows=activeFin('QuoteAtleti').filter(r=>r.seasonId===state.seasonId).sort((a,b)=>financePlayerName(a.playerId).localeCompare(financePlayerName(b.playerId),'it'));
-      body+=`<section class="panel"><div class="panel-heading"><h2 class="panel-title">Quote individuali · ${esc(activeSeason().name)}</h2><div class="finance-actions"><button class="btn btn-primary" data-action="finance-sync-fixed">↻ Sincronizza quote</button></div></div><p class="notice"><strong>Regola fissa:</strong> 20 € per tesserato CSI + 10 € per ogni presenza stagionale effettiva. Le sole convocazioni non producono addebiti. Dopo aver modificato presenze o tesseramenti, sincronizza le quote. Le eventuali vecchie quote manuali restano in archivio: verifica che non generino doppioni.</p><div class="table-shell"><table class="data-table finance-table"><thead><tr><th>Atleta</th><th>Quota</th><th>Dovuto</th><th>Versato</th><th>Residuo</th><th>Scadenza</th><th>Stato</th><th>Azioni</th></tr></thead><tbody>${rows.map(r=>{const paid=paymentTotal('PagamentiQuote','feeId',r.id),rem=remaining(r.amount,paid);return `<tr><td><strong>${esc(financePlayerName(r.playerId))}</strong></td><td>${esc(r.description)}</td><td>${money(r.amount)}</td><td>${money(paid)}</td><td>${money(rem)}</td><td>${r.due?esc(localeDate(r.due)):'—'}</td><td>${finDueLabel(r.amount,paid,r.due)}</td><td><div class="finance-actions">${r.description===FIXED_FEE_TITLE?'':`<button class="btn btn-secondary btn-small" data-action="finance-fee" data-id="${esc(r.id)}">Modifica</button>`}<button class="btn btn-secondary btn-small" data-action="finance-pay-fee" data-id="${esc(r.id)}" ${rem<=0?'disabled':''}>Versamento</button><button class="btn btn-secondary btn-small" data-action="finance-history" data-kind="fee" data-id="${esc(r.id)}">Storico</button>${r.description===FIXED_FEE_TITLE?'':`<button class="btn btn-danger btn-small" data-action="finance-remove" data-kind="QuoteAtleti" data-id="${esc(r.id)}">Annulla</button>`}</div></td></tr>`}).join('')||'<tr><td colspan="8">Non sono state assegnate quote individuali a questa stagione.</td></tr>'}</tbody></table></div><p class="notice">Le quote previste non sono incassi. Entrano nel saldo soltanto i versamenti realmente registrati.</p></section>`;
+      body+=`<section class="panel"><div class="panel-heading"><h2 class="panel-title">Quote individuali · ${esc(activeSeason().name)}</h2><div class="finance-actions"><button class="btn btn-primary" data-action="finance-sync-fixed">↻ Sincronizza quote</button></div></div><p class="notice"><strong>Regola fissa:</strong> 20 € per tesserato CSI + 10 € per ogni presenza stagionale effettiva. Le sole convocazioni non producono addebiti. Puoi versare anche più del dovuto: il credito riduce le quote future della stessa stagione dopo la sincronizzazione. Dopo aver modificato presenze o tesseramenti, sincronizza le quote. Le eventuali vecchie quote manuali restano in archivio: verifica che non generino doppioni.</p><div class="table-shell"><table class="data-table finance-table"><thead><tr><th>Atleta</th><th>Quota</th><th>Dovuto</th><th>Versato</th><th>Residuo</th><th>Credito</th><th>Scadenza</th><th>Stato</th><th>Azioni</th></tr></thead><tbody>${rows.map(r=>{const paid=paymentTotal('PagamentiQuote','feeId',r.id),rem=remaining(r.amount,paid);return `<tr><td><strong>${esc(financePlayerName(r.playerId))}</strong></td><td>${esc(r.description)}</td><td>${money(r.amount)}</td><td>${money(paid)}</td><td>${money(rem)}</td><td>${feeCredit(r.amount,paid)>0?`<strong>${money(feeCredit(r.amount,paid))}</strong>`:money(0)}</td><td>${r.due?esc(localeDate(r.due)):'—'}</td><td>${finDueLabel(r.amount,paid,r.due,true)}</td><td><div class="finance-actions">${r.description===FIXED_FEE_TITLE?'':`<button class="btn btn-secondary btn-small" data-action="finance-fee" data-id="${esc(r.id)}">Modifica</button>`}<button class="btn btn-secondary btn-small" data-action="finance-pay-fee" data-id="${esc(r.id)}">Versamento</button><button class="btn btn-secondary btn-small" data-action="finance-history" data-kind="fee" data-id="${esc(r.id)}">Storico</button>${r.description===FIXED_FEE_TITLE?'':`<button class="btn btn-danger btn-small" data-action="finance-remove" data-kind="QuoteAtleti" data-id="${esc(r.id)}">Annulla</button>`}</div></td></tr>`}).join('')||'<tr><td colspan="9">Non sono state assegnate quote individuali a questa stagione.</td></tr>'}</tbody></table></div><p class="notice">Le quote previste non sono incassi. Entrano nel saldo soltanto i versamenti realmente registrati.</p></section>`;
     }else if(state.financeTab==='storico'){
       const inactive=[...finRows('Movimenti').filter(r=>!r.active&&r.seasonId===state.seasonId).map(r=>({id:r.id,label:r.description,amount:movementTotal(r),kind:'movement'})),...finRows('QuoteAtleti').filter(r=>!r.active&&r.seasonId===state.seasonId).map(r=>({id:r.id,label:financePlayerName(r.playerId)+' · '+r.description,amount:r.amount,kind:'fee'}))];
       const logs=finRows('LogRevisioniContabili').slice().reverse();
@@ -1237,13 +1242,14 @@
       const target=activeFin(fee?'QuoteAtleti':'Movimenti').find(x=>x.id===link);
       if(!target)throw new Error('Voce non più disponibile.');
       const paid=activeFin(sheet).filter(p=>(fee?p.feeId:p.movementId)===link&&p.id!==id).reduce((a,p)=>a+cents(p.amount),0);
-      if(cents(values[3])<=0||paid+cents(values[3])>cents(fee?target.amount:movementTotal(target)))throw new Error('Il residuo è cambiato: versamento superiore al dovuto.');
+      if(cents(values[3])<=0||(!fee&&paid+cents(values[3])>cents(movementTotal(target))))throw new Error('Importo non valido o superiore al residuo del movimento.');
     }
     if(sheet==='Movimenti'||sheet==='QuoteAtleti'){
       const fee=sheet==='QuoteAtleti';
       const paid=paymentTotal(fee?'PagamentiQuote':'PagamentiMovimenti',fee?'feeId':'movementId',id);
       const total=fee?asMoney(values[4]):fromCents(Math.round(cents(values[6])*num(values[7])));
-      if(cents(paid)>cents(total)||(!one(values[fee?7:11])&&cents(paid)>0))throw new Error('Esistono versamenti: aggiorna il residuo prima di modificare.');
+      if((!fee&&cents(paid)>cents(total))||(!one(values[fee?7:11])&&cents(paid)>0))throw new Error('Esistono versamenti: aggiorna il residuo prima di modificare.');
+      if(fee&&one(values[7])&&(!Number.isFinite(Number(values[4]))||Number(values[4])<0))throw new Error('Importo quota non valido.');
       if(fee&&one(values[7])){
         if(previous&&String(previous.GiocatoreID)!==String(values[2]))throw new Error('Il destinatario di una quota esistente non è modificabile.');
         if(activeFin('QuoteAtleti').some(q=>q.id!==id&&q.seasonId===values[1]&&q.playerId===values[2]&&String(q.description).trim().toLowerCase()===String(values[3]).trim().toLowerCase()))throw new Error('Esiste già una quota con questa descrizione per l’atleta.');
@@ -1306,9 +1312,9 @@
     const fee=kind==='fee',rec=finRows(fee?'QuoteAtleti':'Movimenti').find(x=>x.id===id&&x.active);
     if(!rec)return;
     const total=fee?asMoney(rec.amount):movementTotal(rec),paid=paymentTotal(fee?'PagamentiQuote':'PagamentiMovimenti',fee?'feeId':'movementId',id),rem=remaining(total,paid);
-    if(rem<=0){toast('Il saldo è già completo.',true);return;}
-    const fields=[finFormRow('Data versamento',finInput('date',finIsoToday(),'date','required')),finFormRow('Importo (€)',finInput('amount',rem,'number','min="0.01" step="0.01" required')),finFormRow('Metodo',finSelect('method',[['Bonifico','Bonifico'],['Contanti','Contanti'],['Online','Pagamento online'],['Carta','Carta'],['Altro','Altro']],'Bonifico')),finFormRow('Note',finInput('note','','text','maxlength="250"'))];
-    modal(fee?'Registra versamento atleta':'Registra pagamento / incasso',`<p class="form-guide"><strong>${esc(fee?financePlayerName(rec.playerId)+' · '+rec.description:rec.description)}</strong> · Residuo ${money(rem)}</p><form id="finance-form" class="finance-form" onsubmit="return false">${fields.join('')}</form>`,`<button class="btn btn-secondary" data-action="close-modal">Annulla</button><button class="btn btn-primary" data-action="finance-save-payment" data-kind="${fee?'fee':'movement'}" data-id="${esc(id)}">Registra versamento</button>`);
+    if(!fee&&rem<=0){toast('Il saldo è già completo.',true);return;}
+    const fields=[finFormRow('Data versamento',finInput('date',finIsoToday(),'date','required')),finFormRow('Importo (€)',finInput('amount',rem>0?rem:'','number','min="0.01" step="0.01" required')),finFormRow('Metodo',finSelect('method',[['Bonifico','Bonifico'],['Contanti','Contanti'],['Online','Pagamento online'],['Carta','Carta'],['Altro','Altro']],'Bonifico')),finFormRow('Note',finInput('note','','text','maxlength="250"'))];
+    modal(fee?'Registra versamento atleta':'Registra pagamento / incasso',`<p class="form-guide"><strong>${esc(fee?financePlayerName(rec.playerId)+' · '+rec.description:rec.description)}</strong> · Residuo ${money(rem)}${fee?' · Credito '+money(feeCredit(total,paid))+'<br>Puoi anticipare le quote future versando più del residuo.':''}</p><form id="finance-form" class="finance-form" onsubmit="return false">${fields.join('')}</form>`,`<button class="btn btn-secondary" data-action="close-modal">Annulla</button><button class="btn btn-primary" data-action="finance-save-payment" data-kind="${fee?'fee':'movement'}" data-id="${esc(id)}">Registra versamento</button>`);
   }
   async function financeSave(kind,id=''){
     if(state.busy)return;
@@ -1330,7 +1336,6 @@
         if(old?.description===FIXED_FEE_TITLE)throw new Error('Usa Sincronizza quote per modificare la quota automatica.');
         if(!state.data.players.some(p=>p.id===f.playerId))throw new Error('Giocatore non valido.');
         const amount=finPositive(f.amount,'Importo quota');
-        if(amount<paymentTotal('PagamentiQuote','feeId',id))throw new Error('La quota non può essere inferiore ai versamenti già registrati.');
         values=[old?.id||uid('quota'),old?.seasonId||state.seasonId,old?.playerId||f.playerId,String(f.description||'Quota stagione').slice(0,100),amount,f.due||'',String(f.note||'').slice(0,500),1];
       }else if(kind==='category'){
         sheet='Categorie';old=finRows(sheet).find(r=>r.id===id);
@@ -1348,7 +1353,7 @@
       if(!target)throw new Error('Voce non più disponibile.');
       const remain=remaining(isFee?target.amount:movementTotal(target),paymentTotal(isFee?'PagamentiQuote':'PagamentiMovimenti',isFee?'feeId':'movementId',id));
       const amount=finPositive(f.amount,'Versamento');
-      if(cents(amount)>cents(remain))throw new Error('Versamento superiore al residuo disponibile.');
+      if(!isFee&&cents(amount)>cents(remain))throw new Error('Versamento superiore al residuo disponibile.');
       const sheet=isFee?'PagamentiQuote':'PagamentiMovimenti';
       state.busy=true;await writeFin(sheet,[uid('pag'),id,f.date||finIsoToday(),amount,String(f.method||'Altro'),String(f.note||'').slice(0,250),1]);closeModal();toast('Versamento registrato.');
     }catch(err){toast('Pagamento non registrato: '+safeError(err),true);}finally{state.busy=false;}
@@ -1361,7 +1366,7 @@
     const sheet=fee?'PagamentiQuote':'PagamentiMovimenti',rows=finRows(sheet).filter(p=>(fee?p.feeId:p.movementId)===id);
     const total=fee?target.amount:movementTotal(target),paid=paymentTotal(sheet,fee?'feeId':'movementId',id);
     const heading=fee?financePlayerName(target.playerId)+' · '+target.description:target.description;
-    const html=`<p class="form-guide"><strong>${esc(heading)}</strong><br>Totale ${money(total)} · Registrato ${money(paid)} · Residuo ${money(remaining(total,paid))}.</p><div class="table-shell"><table class="data-table finance-table"><thead><tr><th>Data</th><th>Metodo</th><th>Importo</th><th>Note</th><th>Azioni</th></tr></thead><tbody>${rows.map(p=>`<tr><td>${esc(localeDate(p.date))}</td><td>${esc(p.method)}</td><td>${money(p.amount)}</td><td>${esc(p.note||'—')}</td><td>${p.active?`<button class="btn btn-danger btn-small" data-action="finance-cancel-payment" data-kind="${kind}" data-id="${esc(p.id)}">Annulla versamento</button>`:`<span class="chip danger">Annullato</span>${cancelInfo(sheet,p.id)}`}</td></tr>`).join('')||'<tr><td colspan="5">Nessun versamento registrato.</td></tr>'}</tbody></table></div>`;
+    const html=`<p class="form-guide"><strong>${esc(heading)}</strong><br>Totale ${money(total)} · Registrato ${money(paid)} · Residuo ${money(remaining(total,paid))}${fee?' · Credito '+money(feeCredit(total,paid)):''}.</p><div class="table-shell"><table class="data-table finance-table"><thead><tr><th>Data</th><th>Metodo</th><th>Importo</th><th>Note</th><th>Azioni</th></tr></thead><tbody>${rows.map(p=>`<tr><td>${esc(localeDate(p.date))}</td><td>${esc(p.method)}</td><td>${money(p.amount)}</td><td>${esc(p.note||'—')}</td><td>${p.active?`<button class="btn btn-danger btn-small" data-action="finance-cancel-payment" data-kind="${kind}" data-id="${esc(p.id)}">Annulla versamento</button>`:`<span class="chip danger">Annullato</span>${cancelInfo(sheet,p.id)}`}</td></tr>`).join('')||'<tr><td colspan="5">Nessun versamento registrato.</td></tr>'}</tbody></table></div>`;
     modal('Storico versamenti',html,`<button class="btn btn-secondary" data-action="close-modal">Chiudi</button>`,true);
   }
   async function financeCancelPayment(kind,id){
