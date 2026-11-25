@@ -893,3 +893,14 @@ button,input,select,textarea{font-family:inherit}
 .finance-balances td.finance-credit-value,.finance-balances tr:hover td.finance-credit-value{color:#91f5c5;background:#164638;font-weight:800}
 .finance-balances td.finance-zero-value{color:#8193ab}
 .finance-sync-needed{color:#ffd292;font-weight:700}
+
+
+/* v1.48 - ordinamento delle quote e maglia stagionale. */
+.finance-table th.finance-sort-head{padding:0;vertical-align:middle}
+.finance-sort-button{display:block;width:100%;min-height:48px;text-align:left;border:0;background:transparent;color:inherit;font:inherit;letter-spacing:inherit;text-transform:inherit;padding:12px 14px;white-space:nowrap}
+.finance-sort-button:hover,.finance-sort-button:focus-visible{color:#aef8d8;background:#20354c}
+.finance-sort-button:focus-visible{outline:2px solid var(--green);outline-offset:-2px}
+.finance-sort-head[aria-sort="ascending"],.finance-sort-head[aria-sort="descending"]{color:#9af2ca}
+.finance-sort-arrow{font-size:12px;letter-spacing:0;opacity:.65}
+.finance-sort-head[aria-sort="ascending"] .finance-sort-arrow,.finance-sort-head[aria-sort="descending"] .finance-sort-arrow{opacity:1}
+.finance-table td.finance-jersey{text-align:center;min-width:58px}
