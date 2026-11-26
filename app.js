@@ -1,4 +1,4 @@
-/* EXPATS F.C. TEAM MANAGER — v1.51
+/* EXPATS F.C. TEAM MANAGER — v1.52
  * Frontend statico GitHub Pages + Google Sheets API (edit via OAuth) + GViz JSONP (pubblico).
  * Il controllo delle modifiche dipende dai permessi Google Drive sul foglio.
  */
@@ -6,7 +6,7 @@
   'use strict';
   const CFG = window.EXPATS_CONFIG;
   const SHEETS = ['Giocatori','Stagioni','Partite','Distinte','Pregresso','Tesseramenti','Ruoli','Stati','CampionatoClassifica','CampionatoPartite','CampionatoWidget','Formazioni','FormazioniPartite','EventiGol','IdoneitaRosa','FormazioniArchivio'];
-  const VERSION='v1.51';
+  const VERSION='v1.52';
   const FORMATION_SHEETS=new Set(['Formazioni','FormazioniPartite','FormazioniArchivio']);
   const PUBLIC_SHEETS=SHEETS.filter(s=>!FORMATION_SHEETS.has(s));
   const defaultCallable=label=>!/infortun|assen|ritirat|squalificat|sospes|cert.*med.*(?:scadut|mancant)|non.*tesserat|non.*verificat/i.test(String(label||'').normalize('NFD').replace(/[\u0300-\u036f]/g,''));
@@ -743,7 +743,7 @@
       for(const id of recorded)if(allowed.has(id)&&!called.includes(id))called.push(id);
     }
     state.formationDraft={seasonId:state.seasonId,key,module,slots,called,
-      name:saved?.name||'',confirmed:!!saved&&called.length>=7,dirty:false};
+      name:saved?.name||'',confirmed:!!saved&&called.length>=7,rotation:normalizeRotation(saved?.slots?._rotation),dirty:false};
     return state.formationDraft;
   }
   function formationRequiresEligibility(){const m=state.data.matches.find(m=>m.id===state.formationMatchId);return currentEligibilitySeason(state.seasonId)&&(!m||m.date>=athleteToday());}
@@ -866,27 +866,110 @@
     const totals=called.map(id=>({id,minutes:minutes.get(id),starter:starting.includes(id),unavailable:unavailable(byId.get(id))}));
     return {ready:true,duration,half,interval,maxChanges,waves,totals,starting,initialBench:called.filter(id=>!starting.includes(id)),totalChanges:waves.reduce((n,w)=>n+w.changes.length,0)};
   }
+
+  function normalizeRotation(v){
+    const t=v?.settings||{};
+    return {settings:{half:[20,25,30,35].includes(t.half)?t.half:25,interval:[5,10,15].includes(t.interval)?t.interval:10,maxChanges:[1,2,3,4,5,6].includes(t.maxChanges)?t.maxChanges:3},changes:Array.isArray(v?.changes)?v.changes.slice(0,250).filter(c=>c&&typeof c.outgoing==='string'&&typeof c.incoming==='string'&&Number.isInteger(c.minute)).map(c=>({minute:c.minute,outgoing:c.outgoing,incoming:c.incoming})):null};
+  }
+  function simulateRotation(draft,roster,changes,unavailable){
+    const positions=FORMATION_MODULES[draft.module]||[],byId=new Map(roster.map(p=>[p.id,p]));
+    const called=[...new Set(draft.called)].filter(id=>byId.has(id));
+    const starting=positions.map(([slot])=>draft.slots[slot]);
+    if(positions.length!==7||starting.some(id=>!id||!called.includes(id))||new Set(starting).size!==7)return {ready:false,reason:'Assegna tutti e sette i titolari.'};
+    const half=draft.rotation.settings.half,duration=half*2,field=Object.fromEntries(positions.map(([slot],i)=>[slot,starting[i]])),minutes=new Map(called.map(id=>[id,0]));
+    const indexed=changes.map((c,index)=>({...c,index})).sort((a,b)=>a.minute-b.minute||a.index-b.index),errors=[],warnings=[],waves=[];
+    const validTime=c=>Number.isInteger(c.minute)&&c.minute>0&&c.minute<duration;
+    for(const c of indexed.filter(c=>!validTime(c)))errors.push({...c,reason:'Minuto non valido.'});
+    let last=0;
+    for(const time of [...new Set(indexed.filter(validTime).map(c=>c.minute))]){
+      for(const id of Object.values(field))minutes.set(id,minutes.get(id)+time-last);
+      const occupied=new Set(Object.values(field)),usedOut=new Set(),usedIn=new Set(),accepted=[];
+      for(const c of indexed.filter(c=>c.minute===time)){
+        const pos=positions.find(([s])=>field[s]===c.outgoing),player=byId.get(c.incoming);
+        let reason='';
+        if(!called.includes(c.outgoing)||!called.includes(c.incoming))reason='Giocatore non convocato.';
+        else if(!pos)reason='Il giocatore in uscita non è in campo.';
+        else if(occupied.has(c.incoming))reason='Il giocatore in entrata è già in campo.';
+        else if(usedOut.has(c.outgoing)||usedIn.has(c.incoming))reason='Giocatore già coinvolto allo stesso minuto.';
+        else if(unavailable(player))reason='Giocatore in entrata indisponibile.';
+        else if(pos[0]==='GK'&&!eligibleForSlot(player,pos[0]))reason='Per il portiere serve un giocatore compatibile.';
+        if(reason){errors.push({...c,reason});continue;}
+        if(!eligibleForSlot(player,pos[0]))warnings.push({...c,reason:'Ruolo non abituale.'});
+        usedOut.add(c.outgoing);usedIn.add(c.incoming);accepted.push({...c,slot:pos[0],role:pos[1]});
+      }
+      for(const c of accepted)field[c.slot]=c.incoming;
+      if(accepted.length)waves.push({minute:time,half:time===half,changes:accepted,field:{...field}});
+      last=time;
+    }
+    for(const id of Object.values(field))minutes.set(id,minutes.get(id)+duration-last);
+    const totals=called.map(id=>({id,minutes:minutes.get(id),starter:starting.includes(id),unavailable:unavailable(byId.get(id))}));
+    return {ready:true,duration,half,waves,totals,starting,initialBench:called.filter(id=>!starting.includes(id)),totalChanges:waves.reduce((n,w)=>n+w.changes.length,0),errors,warnings};
+  }
+  const rotationUnavailable=p=>!p||isUnavailable(p,state.seasonId);
+  function rotationChanges(draft,roster){
+    if(draft.rotation.changes!==null)return draft.rotation.changes.map(c=>({...c}));
+    const auto=buildFormationRotation(draft,roster,draft.rotation.settings,rotationUnavailable);
+    return auto.ready?auto.waves.flatMap(w=>w.changes.map(c=>({minute:w.minute,outgoing:c.outgoing,incoming:c.incoming}))):[];
+  }
+  const rotationPlan=(draft,roster)=>simulateRotation(draft,roster,rotationChanges(draft,roster),rotationUnavailable);
+  function rotationEditor(index=-1){
+    const draft=ensureFormationDraft(),roster=playersInSeason(state.seasonId),plan=rotationPlan(draft,roster);
+    if(!plan.ready){toast(plan.reason,true);return;}
+    const changes=rotationChanges(draft,roster),old=changes[index],minute=old?.minute??Math.min(draft.rotation.settings.interval,plan.duration-1);
+    const options=draft.called.map(id=>roster.find(p=>p.id===id)).filter(Boolean).sort((a,b)=>name(a).localeCompare(name(b),'it'));
+    const select=(id,label,selected)=>'<label class="formation-rotation-control"><span>'+label+'</span><select id="'+id+'" class="form-control"><option value="">Seleziona giocatore</option>'+options.map(p=>'<option value="'+esc(p.id)+'" '+(p.id===selected?'selected':'')+'>'+esc(name(p))+' · '+esc(rolesText(p.role))+'</option>').join('')+'</select></label>';
+    modal(old?'Modifica sostituzione':'Aggiungi sostituzione','<div class="formation-rotation-controls"><label class="formation-rotation-control"><span>Minuto di gioco</span><input id="rotation-edit-minute" class="form-control" type="number" min="1" max="'+(plan.duration-1)+'" step="1" value="'+minute+'"></label>'+select('rotation-edit-out','Esce',old?.outgoing)+select('rotation-edit-in','Entra',old?.incoming)+'</div><p class="notice">Il giocatore in uscita deve essere in campo; quello in entrata in panchina al minuto scelto.</p>','<button class="btn btn-secondary" data-action="close-modal">Annulla</button><button class="btn btn-primary" data-action="rotation-save-change" data-index="'+index+'">Conferma cambio</button>');
+  }
+  function rotationSaveChange(index){
+    const draft=ensureFormationDraft(),roster=playersInSeason(state.seasonId),changes=rotationChanges(draft,roster);
+    const minute=Number($('#rotation-edit-minute')?.value),outgoing=$('#rotation-edit-out')?.value,incoming=$('#rotation-edit-in')?.value;
+    if(!Number.isInteger(minute)||minute<1||minute>=draft.rotation.settings.half*2||!outgoing||!incoming||outgoing===incoming){toast('Indica minuto e due giocatori diversi.',true);return;}
+    const change={minute,outgoing,incoming};
+    if(index>=0&&index<changes.length)changes[index]=change;else{if(changes.length>=250){toast('Limite di 250 cambi raggiunto.',true);return;}index=changes.length;changes.push(change);}
+    const plan=simulateRotation(draft,roster,changes,rotationUnavailable),error=plan.errors?.find(e=>e.index===index);
+    if(!plan.ready||error){toast(error?.reason||plan.reason,true);return;}
+    draft.rotation.changes=changes;draft.dirty=true;closeModal();render();
+    if(plan.errors.length)toast('Cambio aggiornato. Correggi i cambi successivi evidenziati.',true);
+  }
+  function rotationCommand(action,index){
+    const draft=ensureFormationDraft(),roster=playersInSeason(state.seasonId);
+    if(action==='auto'){
+      if(draft.rotation.changes!==null&&!window.confirm('Sostituire il piano manuale con una nuova proposta automatica?'))return;
+      draft.rotation.changes=null;
+    }else if(action==='clear'){
+      if(!window.confirm('Eliminare tutte le sostituzioni pianificate?'))return;
+      draft.rotation.changes=[];
+    }else if(action==='remove'){
+      const changes=rotationChanges(draft,roster);if(index<0||index>=changes.length)return;
+      changes.splice(index,1);draft.rotation.changes=changes;
+    }
+    draft.dirty=true;render();
+  }
   function renderFormationRotation(draft,roster){
-    const settings=state.formationRotation;
-    const plan=buildFormationRotation(draft,roster,settings,p=>!p||isUnavailable(p,state.seasonId));
+    const settings=draft.rotation.settings;
+    const plan=rotationPlan(draft,roster);
     const select=(key,label,values)=>'<label class="formation-rotation-control"><span>'+label+'</span><select class="form-control" data-rotation-setting="'+key+'">'+values.map(([value,text])=>'<option value="'+value+'" '+(settings[key]===value?'selected':'')+'>'+text+'</option>').join('')+'</select></label>';
     const controls='<div class="formation-rotation-controls">'+select('half','Durata per tempo',[[20,'20 minuti'],[25,'25 minuti'],[30,'30 minuti'],[35,'35 minuti']])+select('interval','Finestra cambi',[[5,'Ogni 5 minuti'],[10,'Ogni 10 minuti'],[15,'Ogni 15 minuti']])+select('maxChanges','Max cambi per finestra',[[1,'1'],[2,'2'],[3,'3'],[4,'4'],[5,'5'],[6,'6']])+'</div>';
     const byId=new Map(roster.map(p=>[p.id,p]));
     const player=(id,slot)=>{const p=byId.get(id);return p?'<span class="rotation-player">'+jersey(slot==='GK'?keeperKitNumber(p):p.number,false,slot==='GK')+'<strong>'+esc(name(p))+'</strong></span>':'—';};
+    const tools=plan.ready?'<div class="rotation-editor-tools"><span class="chip '+(draft.rotation.changes===null?'neutral':'success')+'">'+(draft.rotation.changes===null?'Proposta automatica':'Piano personalizzato')+'</span><button class="btn btn-primary btn-small" data-action="rotation-add">＋ Aggiungi cambio</button><button class="btn btn-secondary btn-small" data-action="rotation-auto">↻ Rigenera proposta</button><button class="btn btn-secondary btn-small" data-action="rotation-clear">Svuota piano</button><button class="btn btn-primary btn-small" data-action="save-formation">Salva formazione e cambi</button></div>':'';
+    const editButtons=index=>'<div class="rotation-change-actions"><button class="btn btn-secondary btn-small" data-action="rotation-edit" data-index="'+index+'">Modifica</button><button class="btn btn-danger btn-small" data-action="rotation-remove" data-index="'+index+'">Elimina</button></div>';
     let body='';
     if(!plan.ready)body='<p class="notice">'+esc(plan.reason)+'</p>';
     else{
       const noMinutes=plan.totals.filter(p=>p.minutes===0);
       const startersUnavailable=plan.totals.filter(p=>p.starter&&p.unavailable);
-      const rows=plan.waves.map(w=>'<div class="rotation-wave"><div class="rotation-wave-time"><strong>'+w.minute+'′</strong><small>'+(w.half?'Intervallo':w.minute<plan.half?'1° tempo':'2° tempo')+'</small></div><div class="rotation-wave-changes">'+w.changes.map(c=>'<div class="rotation-change"><span class="rotation-role">'+esc(c.role)+'</span><div class="rotation-out"><small>ESCE</small>'+player(c.outgoing,c.slot)+'</div><span class="rotation-arrow" aria-hidden="true">→</span><div class="rotation-in"><small>ENTRA</small>'+player(c.incoming,c.slot)+'</div></div>').join('')+'</div></div>').join('');
+      const rows=plan.waves.map(w=>'<div class="rotation-wave"><div class="rotation-wave-time"><strong>'+w.minute+'′</strong><small>'+(w.half?'Intervallo':w.minute<plan.half?'1° tempo':'2° tempo')+'</small></div><div class="rotation-wave-changes">'+w.changes.map(c=>'<div class="rotation-change"><span class="rotation-role">'+esc(c.role)+'</span><div class="rotation-out"><small>ESCE</small>'+player(c.outgoing,c.slot)+'</div><span class="rotation-arrow" aria-hidden="true">→</span><div class="rotation-in"><small>ENTRA</small>'+player(c.incoming,c.slot)+'</div>'+editButtons(c.index)+'</div>').join('')+'</div></div>').join('');
       const minutes=plan.totals.slice().sort((a,b)=>b.minutes-a.minutes||name(byId.get(a.id)).localeCompare(name(byId.get(b.id)),'it')).map(r=>'<div class="rotation-minutes-row"><span>'+esc(name(byId.get(r.id)))+'<small>'+(r.starter?'Titolare':'Riserva')+(r.unavailable?' · Indisponibile':'')+'</small></span><div class="rotation-minutes-track" role="meter" aria-label="Minuti stimati" aria-valuenow="'+r.minutes+'" aria-valuemin="0" aria-valuemax="'+plan.duration+'"><i style="width:'+(r.minutes/plan.duration*100)+'%"></i></div><strong>'+r.minutes+'′</strong></div>').join('');
-      body='<div class="rotation-summary"><span class="chip neutral">'+plan.duration+' minuti</span><span class="chip neutral">'+plan.initialBench.length+' riserve</span><span class="chip neutral">'+plan.totalChanges+' cambi suggeriti</span><span class="chip neutral">'+plan.totals.filter(x=>x.minutes>0).length+'/'+plan.totals.length+' impiegati</span></div>'+
+      body='<div class="rotation-summary"><span class="chip neutral">'+plan.duration+' minuti</span><span class="chip neutral">'+plan.initialBench.length+' riserve</span><span class="chip neutral">'+plan.totalChanges+' cambi pianificati</span><span class="chip neutral">'+plan.totals.filter(x=>x.minutes>0).length+'/'+plan.totals.length+' impiegati</span></div>'+
         (startersUnavailable.length?'<p class="import-error">Titolari indisponibili: '+esc(startersUnavailable.map(x=>name(byId.get(x.id))).join(', '))+'. Correggi la formazione prima della partita.</p>':'')+
         (rows?'<div class="rotation-timeline">'+rows+'</div>':'<p class="notice">'+(plan.initialBench.length?'Nessun cambio compatibile consigliato con queste impostazioni.':'Nessuna riserva disponibile per effettuare cambi.')+'</p>')+
+        (plan.errors?.length?'<div class="rotation-invalid"><h3>Cambi da correggere</h3>'+plan.errors.map(c=>'<div><strong>'+c.minute+'′ · '+esc(byId.has(c.outgoing)?name(byId.get(c.outgoing)):c.outgoing)+' → '+esc(byId.has(c.incoming)?name(byId.get(c.incoming)):c.incoming)+'</strong><p class="notice">'+esc(c.reason)+'</p>'+editButtons(c.index)+'</div>').join('')+'</div>':'')+
+        (plan.warnings?.length?'<p class="notice rotation-warning">'+plan.warnings.length+' cambi in ruoli non abituali, scelti manualmente.</p>':'')+
         (noMinutes.length?'<p class="notice rotation-warning">Senza minuti stimati: '+esc(noMinutes.map(x=>name(byId.get(x.id))).join(', '))+'. Verifica i ruoli, le disponibilità o aumenta le finestre di cambio.</p>':'')+
         '<h3 class="panel-title rotation-minutes-heading">Minutaggio previsto</h3><div class="rotation-minutes-list">'+minutes+'</div>';
     }
-    return '<section class="panel formation-rotation-panel mt-20"><div class="panel-heading"><div><h2 class="panel-title">Proposta di sostituzioni</h2><p class="notice">Piano indicativo per ruotare i convocati, rispettando modulo, ruoli e disponibilità. Il minutaggio viene bilanciato per quanto possibile; il portiere cambia solo con una riserva compatibile.</p></div></div>'+controls+body+'<p class="notice">Ipotesi di cambi volanti con possibilità di rientro; verifica il regolamento della competizione. Adatta il piano a risultato, stanchezza e infortuni. La proposta non modifica né salva la distinta e si ricalcola quando cambia la formazione.</p></section>';
+    return '<section class="panel formation-rotation-panel mt-20"><div class="panel-heading"><div><h2 class="panel-title">Proposta di sostituzioni</h2><p class="notice">Modifica la proposta automatica oppure crea il tuo piano: scegli minuto, giocatore in uscita e in entrata. Il minutaggio si aggiorna a ogni modifica.</p></div></div>'+controls+tools+body+'<p class="notice">Ipotesi di cambi volanti con possibilità di rientro; verifica il regolamento della competizione. Adatta il piano a risultato, stanchezza e infortuni. Il piano personalizzato si salva insieme alla formazione; non modifica le presenze ufficiali. Frequenza e numero massimo di cambi si applicano solo alla proposta automatica. I cambi manuali rimangono modificabili anche dopo aver cambiato i titolari.</p></section>';
   }
   function renderFormation(){
     if(!canManageFormation())return intro('ACCESSO RISERVATO','Formazione','Accedi con il tuo account amministratore.');
@@ -968,6 +1051,9 @@
     const now=new Date().toISOString();
     const slots=Object.fromEntries(positions.map(k=>[k,draft.slots[k]]));
     slots._convocati=[...draft.called];
+    const rotation=rotationPlan(draft,playersInSeason(state.seasonId));
+    if(draft.rotation.changes!==null&&(!rotation.ready||rotation.errors?.length))throw new Error('Correggi o elimina i cambi non validi prima di salvare la formazione.');
+    slots._rotation=normalizeRotation(draft.rotation);
     const id=prev?.id||uid('form');
     const values=[id,state.seasonId,state.formationMatchId||'',nameValue,draft.module,JSON.stringify(slots),now];
     // Aggiorna soltanto la formazione selezionata; per Nuova formazione crea sempre una riga con ID nuovo.
@@ -2034,6 +2120,7 @@
         if(obj&&typeof obj==='object'&&!Array.isArray(obj)){
           slots=Object.fromEntries(Object.entries(obj).filter(([k,v])=>/^(?:GK|A1|D[1-3]|M[1-3]|B[1-5])$/.test(k)&&typeof v==='string'));
           if(Array.isArray(obj._convocati))slots._convocati=[...new Set(obj._convocati.filter(id=>typeof id==='string'))];
+          if(obj._rotation&&typeof obj._rotation==='object')slots._rotation=normalizeRotation(obj._rotation);
         }
       }catch(_){/* Righe storiche malformate non interrompono la lettura */}
       return {id:str(r[0]),seasonId:str(r[1]),matchId:str(r[2]),name:str(r[3])||'Formazione senza nome',module:str(r[4]),slots,updatedAt:str(r[6]),_row:i+2};
@@ -2637,6 +2724,12 @@
     else if(action==='analytics-refresh')loadAnalytics();
     else if(action==='analytics-export')analyticsExportCSV();
     else if(action==='analytics-days'){state.analyticsDays=Number(btn.dataset.days)||30;render();}
+    else if(action==='rotation-add')rotationEditor();
+    else if(action==='rotation-edit')rotationEditor(Number(btn.dataset.index));
+    else if(action==='rotation-save-change')rotationSaveChange(Number(btn.dataset.index));
+    else if(action==='rotation-remove')rotationCommand('remove',Number(btn.dataset.index));
+    else if(action==='rotation-auto')rotationCommand('auto');
+    else if(action==='rotation-clear')rotationCommand('clear');
     else if(action==='formation-new')newFormation();
     else if(action==='formation-confirm-called')confirmFormationCalled();
     else if(action==='formation-edit-called'){ensureFormationDraft().confirmed=false;render();}
@@ -2702,7 +2795,7 @@
     if(event.target.dataset.formationCalled){setFormationCalled(event.target.dataset.formationCalled,event.target.checked);return;}
     if(event.target.matches('select[data-rotation-setting]')){
       const key=event.target.dataset.rotationSetting,value=Number(event.target.value),allowed={half:[20,25,30,35],interval:[5,10,15],maxChanges:[1,2,3,4,5,6]};
-      if(allowed[key]?.includes(value)){state.formationRotation[key]=value;render();}
+      if(allowed[key]?.includes(value)){const draft=ensureFormationDraft();draft.rotation.settings[key]=value;draft.dirty=true;render();}
       return;
     }
     if(event.target.id==='formation-module'){changeFormationModule(event.target.value);return;}
