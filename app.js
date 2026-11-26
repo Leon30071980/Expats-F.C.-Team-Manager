@@ -1,4 +1,4 @@
-/* EXPATS F.C. TEAM MANAGER — v1.52
+/* EXPATS F.C. TEAM MANAGER — v1.53
  * Frontend statico GitHub Pages + Google Sheets API (edit via OAuth) + GViz JSONP (pubblico).
  * Il controllo delle modifiche dipende dai permessi Google Drive sul foglio.
  */
@@ -6,7 +6,7 @@
   'use strict';
   const CFG = window.EXPATS_CONFIG;
   const SHEETS = ['Giocatori','Stagioni','Partite','Distinte','Pregresso','Tesseramenti','Ruoli','Stati','CampionatoClassifica','CampionatoPartite','CampionatoWidget','Formazioni','FormazioniPartite','EventiGol','IdoneitaRosa','FormazioniArchivio'];
-  const VERSION='v1.52';
+  const VERSION='v1.53';
   const FORMATION_SHEETS=new Set(['Formazioni','FormazioniPartite','FormazioniArchivio']);
   const PUBLIC_SHEETS=SHEETS.filter(s=>!FORMATION_SHEETS.has(s));
   const defaultCallable=label=>!/infortun|assen|ritirat|squalificat|sospes|cert.*med.*(?:scadut|mancant)|non.*tesserat|non.*verificat/i.test(String(label||'').normalize('NFD').replace(/[\u0300-\u036f]/g,''));
@@ -918,7 +918,7 @@
     const changes=rotationChanges(draft,roster),old=changes[index],minute=old?.minute??Math.min(draft.rotation.settings.interval,plan.duration-1);
     const options=draft.called.map(id=>roster.find(p=>p.id===id)).filter(Boolean).sort((a,b)=>name(a).localeCompare(name(b),'it'));
     const select=(id,label,selected)=>'<label class="formation-rotation-control"><span>'+label+'</span><select id="'+id+'" class="form-control"><option value="">Seleziona giocatore</option>'+options.map(p=>'<option value="'+esc(p.id)+'" '+(p.id===selected?'selected':'')+'>'+esc(name(p))+' · '+esc(rolesText(p.role))+'</option>').join('')+'</select></label>';
-    modal(old?'Modifica sostituzione':'Aggiungi sostituzione','<div class="formation-rotation-controls"><label class="formation-rotation-control"><span>Minuto di gioco</span><input id="rotation-edit-minute" class="form-control" type="number" min="1" max="'+(plan.duration-1)+'" step="1" value="'+minute+'"></label>'+select('rotation-edit-out','Esce',old?.outgoing)+select('rotation-edit-in','Entra',old?.incoming)+'</div><p class="notice">Il giocatore in uscita deve essere in campo; quello in entrata in panchina al minuto scelto.</p>','<button class="btn btn-secondary" data-action="close-modal">Annulla</button><button class="btn btn-primary" data-action="rotation-save-change" data-index="'+index+'">Conferma cambio</button>');
+    modal(old?'Modifica sostituzione':'Aggiungi sostituzione','<div class="formation-rotation-controls"><label class="formation-rotation-control"><span>Minuto di gioco</span><input id="rotation-edit-minute" class="form-control" type="number" min="1" max="'+(plan.duration-1)+'" step="1" value="'+minute+'"></label>'+select('rotation-edit-in','Entra',old?.incoming)+select('rotation-edit-out','Esce',old?.outgoing)+'</div><p class="notice">Il giocatore in uscita deve essere in campo; quello in entrata in panchina al minuto scelto.</p>','<button class="btn btn-secondary" data-action="close-modal">Annulla</button><button class="btn btn-primary" data-action="rotation-save-change" data-index="'+index+'">Conferma cambio</button>');
   }
   function rotationSaveChange(index){
     const draft=ensureFormationDraft(),roster=playersInSeason(state.seasonId),changes=rotationChanges(draft,roster);
@@ -959,12 +959,12 @@
     else{
       const noMinutes=plan.totals.filter(p=>p.minutes===0);
       const startersUnavailable=plan.totals.filter(p=>p.starter&&p.unavailable);
-      const rows=plan.waves.map(w=>'<div class="rotation-wave"><div class="rotation-wave-time"><strong>'+w.minute+'′</strong><small>'+(w.half?'Intervallo':w.minute<plan.half?'1° tempo':'2° tempo')+'</small></div><div class="rotation-wave-changes">'+w.changes.map(c=>'<div class="rotation-change"><span class="rotation-role">'+esc(c.role)+'</span><div class="rotation-out"><small>ESCE</small>'+player(c.outgoing,c.slot)+'</div><span class="rotation-arrow" aria-hidden="true">→</span><div class="rotation-in"><small>ENTRA</small>'+player(c.incoming,c.slot)+'</div>'+editButtons(c.index)+'</div>').join('')+'</div></div>').join('');
+      const rows=plan.waves.map(w=>'<div class="rotation-wave"><div class="rotation-wave-time"><strong>'+w.minute+'′</strong><small>'+(w.half?'Intervallo':w.minute<plan.half?'1° tempo':'2° tempo')+'</small></div><div class="rotation-wave-changes">'+w.changes.map(c=>'<div class="rotation-change"><span class="rotation-role">'+esc(c.role)+'</span><div class="rotation-in"><small>ENTRA</small>'+player(c.incoming,c.slot)+'</div><span class="rotation-arrow" aria-hidden="true">←</span><div class="rotation-out"><small>ESCE</small>'+player(c.outgoing,c.slot)+'</div>'+editButtons(c.index)+'</div>').join('')+'</div></div>').join('');
       const minutes=plan.totals.slice().sort((a,b)=>b.minutes-a.minutes||name(byId.get(a.id)).localeCompare(name(byId.get(b.id)),'it')).map(r=>'<div class="rotation-minutes-row"><span>'+esc(name(byId.get(r.id)))+'<small>'+(r.starter?'Titolare':'Riserva')+(r.unavailable?' · Indisponibile':'')+'</small></span><div class="rotation-minutes-track" role="meter" aria-label="Minuti stimati" aria-valuenow="'+r.minutes+'" aria-valuemin="0" aria-valuemax="'+plan.duration+'"><i style="width:'+(r.minutes/plan.duration*100)+'%"></i></div><strong>'+r.minutes+'′</strong></div>').join('');
       body='<div class="rotation-summary"><span class="chip neutral">'+plan.duration+' minuti</span><span class="chip neutral">'+plan.initialBench.length+' riserve</span><span class="chip neutral">'+plan.totalChanges+' cambi pianificati</span><span class="chip neutral">'+plan.totals.filter(x=>x.minutes>0).length+'/'+plan.totals.length+' impiegati</span></div>'+
         (startersUnavailable.length?'<p class="import-error">Titolari indisponibili: '+esc(startersUnavailable.map(x=>name(byId.get(x.id))).join(', '))+'. Correggi la formazione prima della partita.</p>':'')+
         (rows?'<div class="rotation-timeline">'+rows+'</div>':'<p class="notice">'+(plan.initialBench.length?'Nessun cambio compatibile consigliato con queste impostazioni.':'Nessuna riserva disponibile per effettuare cambi.')+'</p>')+
-        (plan.errors?.length?'<div class="rotation-invalid"><h3>Cambi da correggere</h3>'+plan.errors.map(c=>'<div><strong>'+c.minute+'′ · '+esc(byId.has(c.outgoing)?name(byId.get(c.outgoing)):c.outgoing)+' → '+esc(byId.has(c.incoming)?name(byId.get(c.incoming)):c.incoming)+'</strong><p class="notice">'+esc(c.reason)+'</p>'+editButtons(c.index)+'</div>').join('')+'</div>':'')+
+        (plan.errors?.length?'<div class="rotation-invalid"><h3>Cambi da correggere</h3>'+plan.errors.map(c=>'<div><strong>'+c.minute+'′ · '+'Entra: '+esc(byId.has(c.incoming)?name(byId.get(c.incoming)):c.incoming)+' · Esce: '+esc(byId.has(c.outgoing)?name(byId.get(c.outgoing)):c.outgoing)+'</strong><p class="notice">'+esc(c.reason)+'</p>'+editButtons(c.index)+'</div>').join('')+'</div>':'')+
         (plan.warnings?.length?'<p class="notice rotation-warning">'+plan.warnings.length+' cambi in ruoli non abituali, scelti manualmente.</p>':'')+
         (noMinutes.length?'<p class="notice rotation-warning">Senza minuti stimati: '+esc(noMinutes.map(x=>name(byId.get(x.id))).join(', '))+'. Verifica i ruoli, le disponibilità o aumenta le finestre di cambio.</p>':'')+
         '<h3 class="panel-title rotation-minutes-heading">Minutaggio previsto</h3><div class="rotation-minutes-list">'+minutes+'</div>';
