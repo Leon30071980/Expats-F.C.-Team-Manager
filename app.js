@@ -1,4 +1,4 @@
-/* EXPATS F.C. TEAM MANAGER — v1.53
+/* EXPATS F.C. TEAM MANAGER — v1.54
  * Frontend statico GitHub Pages + Google Sheets API (edit via OAuth) + GViz JSONP (pubblico).
  * Il controllo delle modifiche dipende dai permessi Google Drive sul foglio.
  */
@@ -6,7 +6,7 @@
   'use strict';
   const CFG = window.EXPATS_CONFIG;
   const SHEETS = ['Giocatori','Stagioni','Partite','Distinte','Pregresso','Tesseramenti','Ruoli','Stati','CampionatoClassifica','CampionatoPartite','CampionatoWidget','Formazioni','FormazioniPartite','EventiGol','IdoneitaRosa','FormazioniArchivio'];
-  const VERSION='v1.53';
+  const VERSION='v1.54';
   const FORMATION_SHEETS=new Set(['Formazioni','FormazioniPartite','FormazioniArchivio']);
   const PUBLIC_SHEETS=SHEETS.filter(s=>!FORMATION_SHEETS.has(s));
   const defaultCallable=label=>!/infortun|assen|ritirat|squalificat|sospes|cert.*med.*(?:scadut|mancant)|non.*tesserat|non.*verificat/i.test(String(label||'').normalize('NFD').replace(/[\u0300-\u036f]/g,''));
@@ -952,7 +952,7 @@
     const controls='<div class="formation-rotation-controls">'+select('half','Durata per tempo',[[20,'20 minuti'],[25,'25 minuti'],[30,'30 minuti'],[35,'35 minuti']])+select('interval','Finestra cambi',[[5,'Ogni 5 minuti'],[10,'Ogni 10 minuti'],[15,'Ogni 15 minuti']])+select('maxChanges','Max cambi per finestra',[[1,'1'],[2,'2'],[3,'3'],[4,'4'],[5,'5'],[6,'6']])+'</div>';
     const byId=new Map(roster.map(p=>[p.id,p]));
     const player=(id,slot)=>{const p=byId.get(id);return p?'<span class="rotation-player">'+jersey(slot==='GK'?keeperKitNumber(p):p.number,false,slot==='GK')+'<strong>'+esc(name(p))+'</strong></span>':'—';};
-    const tools=plan.ready?'<div class="rotation-editor-tools"><span class="chip '+(draft.rotation.changes===null?'neutral':'success')+'">'+(draft.rotation.changes===null?'Proposta automatica':'Piano personalizzato')+'</span><button class="btn btn-primary btn-small" data-action="rotation-add">＋ Aggiungi cambio</button><button class="btn btn-secondary btn-small" data-action="rotation-auto">↻ Rigenera proposta</button><button class="btn btn-secondary btn-small" data-action="rotation-clear">Svuota piano</button><button class="btn btn-primary btn-small" data-action="save-formation">Salva formazione e cambi</button></div>':'';
+    const tools=plan.ready?'<div class="rotation-editor-tools"><span class="chip '+(draft.rotation.changes===null?'neutral':'success')+'">'+(draft.rotation.changes===null?'Proposta automatica':'Piano personalizzato')+'</span><button class="btn btn-primary btn-small" data-action="rotation-add">＋ Aggiungi cambio</button><button class="btn btn-secondary btn-small" data-action="rotation-auto">↻ Rigenera proposta</button><button class="btn btn-secondary btn-small" data-action="rotation-clear">Svuota piano</button><button class="btn btn-primary btn-small" data-action="save-formation">Salva formazione e cambi</button><button class="btn btn-secondary btn-small" data-action="formation-print-a4">⎙ Stampa A4</button></div>':'';
     const editButtons=index=>'<div class="rotation-change-actions"><button class="btn btn-secondary btn-small" data-action="rotation-edit" data-index="'+index+'">Modifica</button><button class="btn btn-danger btn-small" data-action="rotation-remove" data-index="'+index+'">Elimina</button></div>';
     let body='';
     if(!plan.ready)body='<p class="notice">'+esc(plan.reason)+'</p>';
@@ -970,6 +970,45 @@
         '<h3 class="panel-title rotation-minutes-heading">Minutaggio previsto</h3><div class="rotation-minutes-list">'+minutes+'</div>';
     }
     return '<section class="panel formation-rotation-panel mt-20"><div class="panel-heading"><div><h2 class="panel-title">Proposta di sostituzioni</h2><p class="notice">Modifica la proposta automatica oppure crea il tuo piano: scegli minuto, giocatore in uscita e in entrata. Il minutaggio si aggiorna a ogni modifica.</p></div></div>'+controls+tools+body+'<p class="notice">Ipotesi di cambi volanti con possibilità di rientro; verifica il regolamento della competizione. Adatta il piano a risultato, stanchezza e infortuni. Il piano personalizzato si salva insieme alla formazione; non modifica le presenze ufficiali. Frequenza e numero massimo di cambi si applicano solo alla proposta automatica. I cambi manuali rimangono modificabili anche dopo aver cambiato i titolari.</p></section>';
+  }
+
+  // Scheda di stampa indipendente dai controlli dell'app: nessun dato viene modificato.
+  function formationPrintMarkup(draft,roster,plan,context){
+    const byId=new Map(roster.map(p=>[p.id,p]));
+    const positions=FORMATION_MODULES[draft.module];
+    const label=(id,slot)=>{const p=byId.get(id);if(!p)return '—';const number=slot==='GK'?keeperKitNumber(p):p.number;return (number!==null&&number!==undefined&&number!==''?'<b class="fp-number">'+esc(number)+'</b> ':'')+esc(name(p));};
+    const field=positions.map(([slot,role,x,y])=>'<div class="fp-position" style="left:'+x+'%;top:'+y+'%"><strong>'+label(draft.slots[slot],slot)+'</strong><small>'+esc(role)+'</small></div>').join('');
+    const bench=plan.initialBench.map(id=>'<li>'+label(id,isKeeper(byId.get(id))?'GK':'')+'<small>'+esc(rolesText(byId.get(id).role))+'</small></li>').join('');
+    const changes=plan.waves.flatMap(w=>w.changes.map((c,i)=>'<tr><td>'+(i===0?'<b>'+w.minute+'′</b>'+(w.half?' · Int.':''):'')+'</td><td>'+label(c.incoming,c.slot)+'</td><td>'+label(c.outgoing,c.slot)+'</td><td>'+esc(c.role)+'</td></tr>')).join('');
+    const totals=plan.totals.slice().sort((a,b)=>b.minutes-a.minutes||name(byId.get(a.id)).localeCompare(name(byId.get(b.id)),'it')).map(r=>'<div>'+esc(name(byId.get(r.id)))+' <b>'+r.minutes+'′</b></div>').join('');
+    return '<article class="fp-sheet"><header class="fp-header"><div><h1>EXPATS F.C. · Formazione</h1><p>'+esc(context.season)+' · '+esc(draft.name||'Formazione senza nome')+(context.match?' · '+esc(context.match):'')+'</p></div><div class="fp-meta"><b>'+esc(draft.module)+'</b><br>'+plan.duration+' min · '+plan.totals.length+' convocati'+(draft.dirty?'<br>Bozza non salvata':'')+'</div></header>'+
+      '<section class="fp-top"><div class="fp-pitch"><div class="fp-pitch-inner"></div><div class="fp-midline"></div><div class="fp-circle"></div><div class="fp-area fp-area-top"></div><div class="fp-area fp-area-bottom"></div>'+field+'</div><aside class="fp-bench"><h2>Riserve ('+plan.initialBench.length+')</h2><ul class="'+(plan.initialBench.length>9?'fp-bench-dense':'')+'">'+(bench||'<li>Nessuna riserva</li>')+'</ul></aside></section>'+
+      '<h2>Proposta di sostituzioni · '+plan.totalChanges+' cambi</h2><table class="fp-changes"><thead><tr><th>Min.</th><th>ENTRA</th><th>ESCE</th><th>Posizione</th></tr></thead><tbody>'+(changes||'<tr><td colspan="4">Nessun cambio pianificato</td></tr>')+'</tbody></table>'+
+      '<h2>Minutaggio previsto</h2><div class="fp-minutes">'+totals+'</div>'+
+      (plan.warnings.length?'<p class="fp-note">Attenzione: '+plan.warnings.length+' cambi in ruoli non abituali.</p>':'')+
+      '<p class="fp-note">Piano indicativo · Cambi volanti con rientro · '+esc(VERSION)+'</p></article>';
+  }
+  function printFormationA4(){
+    if(!canManageFormation())return;
+    const draft=ensureFormationDraft(),roster=playersInSeason(state.seasonId),plan=rotationPlan(draft,roster);
+    if(!plan.ready){toast(plan.reason,true);return;}
+    if(plan.errors.length){toast('Correggi i cambi non validi prima di stampare.',true);return;}
+    const match=seasonMatches(state.seasonId).find(m=>m.id===state.formationMatchId);
+    const context={season:activeSeason().name,match:match?localeDate(match.date)+' · '+match.opponent:''};
+    document.querySelector('#formation-print-root')?.remove();
+    const root=document.createElement('div');root.id='formation-print-root';root.innerHTML=formationPrintMarkup(draft,roster,plan,context);
+    document.body.append(root);
+    const sheet=root.querySelector('.fp-sheet');
+    // 190 × 277 mm utili in A4 verticale con margini di 10 mm.
+    // 274 mm lascia un piccolo margine di sicurezza contro gli arrotondamenti.
+    const height=sheet.getBoundingClientRect().height,limit=274*96/25.4;
+    const scale=Math.min(1,limit/Math.max(1,height));
+    sheet.style.zoom=String(scale);
+    if(scale<0.7&&!window.confirm('Il piano è molto lungo: per stamparlo su un solo A4 il testo sarà piccolo. Continuare?')){root.remove();return;}
+    document.body.classList.add('formation-printing');
+    const cleanup=()=>{root.remove();document.body.classList.remove('formation-printing');};
+    window.addEventListener('afterprint',cleanup,{once:true});
+    try{window.print();}catch(e){window.removeEventListener('afterprint',cleanup);cleanup();toast('Stampa non riuscita: '+safeError(e),true);}
   }
   function renderFormation(){
     if(!canManageFormation())return intro('ACCESSO RISERVATO','Formazione','Accedi con il tuo account amministratore.');
@@ -2724,6 +2763,7 @@
     else if(action==='analytics-refresh')loadAnalytics();
     else if(action==='analytics-export')analyticsExportCSV();
     else if(action==='analytics-days'){state.analyticsDays=Number(btn.dataset.days)||30;render();}
+    else if(action==='formation-print-a4')printFormationA4();
     else if(action==='rotation-add')rotationEditor();
     else if(action==='rotation-edit')rotationEditor(Number(btn.dataset.index));
     else if(action==='rotation-save-change')rotationSaveChange(Number(btn.dataset.index));
