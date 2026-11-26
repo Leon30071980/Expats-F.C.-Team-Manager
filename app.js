@@ -1,4 +1,4 @@
-/* EXPATS F.C. TEAM MANAGER — v1.50
+/* EXPATS F.C. TEAM MANAGER — v1.51
  * Frontend statico GitHub Pages + Google Sheets API (edit via OAuth) + GViz JSONP (pubblico).
  * Il controllo delle modifiche dipende dai permessi Google Drive sul foglio.
  */
@@ -6,7 +6,7 @@
   'use strict';
   const CFG = window.EXPATS_CONFIG;
   const SHEETS = ['Giocatori','Stagioni','Partite','Distinte','Pregresso','Tesseramenti','Ruoli','Stati','CampionatoClassifica','CampionatoPartite','CampionatoWidget','Formazioni','FormazioniPartite','EventiGol','IdoneitaRosa','FormazioniArchivio'];
-  const VERSION='v1.50';
+  const VERSION='v1.51';
   const FORMATION_SHEETS=new Set(['Formazioni','FormazioniPartite','FormazioniArchivio']);
   const PUBLIC_SHEETS=SHEETS.filter(s=>!FORMATION_SHEETS.has(s));
   const defaultCallable=label=>!/infortun|assen|ritirat|squalificat|sospes|cert.*med.*(?:scadut|mancant)|non.*tesserat|non.*verificat/i.test(String(label||'').normalize('NFD').replace(/[\u0300-\u036f]/g,''));
@@ -15,7 +15,7 @@
     data: structuredClone(window.EXPATS_DEMO),
     source: 'demo', view: 'league', seasonId: '', rankingsAll: false, rosterScope: 'season',
     sort: {key:'number',dir:1}, search:'', filter:'TUTTI', leagueTab:'calendario',
-    token: '', accountEmail:'', sheetIds: {}, schemaReady:false, busy: false, inlineSaving:false, lastError: '', formationDraft:null, formationMatchId:'', formationRecordId:'', formationNew:false, formationPickerSlot:null, athleteRecords:[],athleteError:'',athleteReady:false, analyticsRows:null,analyticsError:'',analyticsDays:30,analyticsLoading:false, finance:null,financeReady:false,financeError:'',financeLoading:false,financeTab:'movimenti', financeSort:{key:'name',dir:1}, financeDetailSort:{key:'name',dir:1}, formationReady:false,formationError:'', lastSync:'',publicWarnings:[]
+    token: '', accountEmail:'', sheetIds: {}, schemaReady:false, busy: false, inlineSaving:false, lastError: '', formationDraft:null, formationMatchId:'', formationRecordId:'', formationNew:false, formationPickerSlot:null, formationRotation:{half:25,interval:10,maxChanges:3}, athleteRecords:[],athleteError:'',athleteReady:false, analyticsRows:null,analyticsError:'',analyticsDays:30,analyticsLoading:false, finance:null,financeReady:false,financeError:'',financeLoading:false,financeTab:'movimenti', financeSort:{key:'name',dir:1}, financeDetailSort:{key:'name',dir:1}, formationReady:false,formationError:'', lastSync:'',publicWarnings:[]
   };
   const $ = (sel, root=document) => root.querySelector(sel);
   const el = (name, attrs={}) => Object.assign(document.createElement(name), attrs);
@@ -806,6 +806,88 @@
       <div class="formation-call-grid">${checks}</div>
       <div class="formation-call-footer"><p id="formation-called-hint">${draft.called.length<7?`Seleziona almeno 7 giocatori (ne mancano ${7-draft.called.length}).`:`${draft.called.length} convocati: 7 titolari e ${draft.called.length-7} riserve.`}</p><button id="formation-confirm-called" class="btn btn-primary" data-action="formation-confirm-called" ${draft.called.length<7?'disabled':''}>Conferma convocati · Vai al campo</button></div></section>`;
   }
+
+  // Proposta tattica derivata dalla formazione, mai scritta nelle distinte.
+  // Le sostituzioni sono simultanee a ogni finestra: una riserva appena uscita
+  // non può rientrare nella medesima finestra. Ruoli compatibili obbligatori.
+  function buildFormationRotation(draft,roster,settings,unavailable){
+    const positions=FORMATION_MODULES[draft.module]||[];
+    const byId=new Map(roster.map(p=>[p.id,p]));
+    const called=[...new Set(draft.called)].filter(id=>byId.has(id));
+    const starting=positions.map(([slot])=>draft.slots[slot]);
+    if(positions.length!==7||starting.some(id=>!id||!called.includes(id))||new Set(starting).size!==7)return {ready:false,reason:'Assegna tutti e sette i titolari per generare il piano.'};
+    const half=[20,25,30,35].includes(settings.half)?settings.half:25;
+    const interval=[5,10,15].includes(settings.interval)?settings.interval:10;
+    const maxChanges=[1,2,3,4,5,6].includes(settings.maxChanges)?settings.maxChanges:3;
+    const duration=half*2;
+    const boundaries=[0,half,duration];
+    for(let start of [0,half])for(let t=start+interval;t<start+half;t+=interval)boundaries.push(t);
+    const times=[...new Set(boundaries)].sort((a,b)=>a-b);
+    const field=Object.fromEntries(positions.map(([slot],i)=>[slot,starting[i]]));
+    const minutes=new Map(called.map(id=>[id,0]));
+    const waves=[];
+    // Bitmask DP: migliore combinazione tra tutti i cambi compatibili,
+    // senza duplicare giocatori/posizioni e con limite di cambi per finestra.
+    const countBits=n=>{let c=0;while(n){n&=n-1;c++;}return c;};
+    for(let k=0;k<times.length-1;k++){
+      const time=times[k],span=times[k+1]-time;
+      if(k>0){
+        const occupied=new Set(Object.values(field));
+        const bench=called.filter(id=>!occupied.has(id)&&!unavailable(byId.get(id)));
+        let best=new Map([[0,{score:0,changes:[]}]]);
+        for(const incoming of bench){
+          const next=new Map(best);
+          for(const [mask,partial] of best){
+            if(countBits(mask)>=maxChanges)continue;
+            positions.forEach(([slot,role],j)=>{
+              if(mask&(1<<j))return;
+              const outgoing=field[slot],player=byId.get(incoming);
+              if(!eligibleForSlot(player,slot))return;
+              const gap=minutes.get(outgoing)-minutes.get(incoming);
+              // Riduzione della disparità dei minuti nel prossimo intervallo.
+              // Favorisce una riserva mai impiegata a parità di beneficio.
+              if(gap<=0&&!unavailable(byId.get(outgoing)))return;
+              const gain=gap*span+(minutes.get(incoming)===0?0.25:0)+(unavailable(byId.get(outgoing))?1000000:0);
+              if(gain<=0)return;
+              const newMask=mask|(1<<j),candidate={score:partial.score+gain,changes:[...partial.changes,{slot,role,outgoing,incoming}]};
+              if(!next.has(newMask)||candidate.score>next.get(newMask).score)next.set(newMask,candidate);
+            });
+          }
+          best=next;
+        }
+        const selected=[...best.values()].sort((a,b)=>b.score-a.score||a.changes.length-b.changes.length)[0].changes;
+        if(selected.length){
+          for(const ch of selected)field[ch.slot]=ch.incoming;
+          waves.push({minute:time,half:time===half,changes:selected,field:{...field}});
+        }
+      }
+      for(const id of Object.values(field))minutes.set(id,minutes.get(id)+span);
+    }
+    const totals=called.map(id=>({id,minutes:minutes.get(id),starter:starting.includes(id),unavailable:unavailable(byId.get(id))}));
+    return {ready:true,duration,half,interval,maxChanges,waves,totals,starting,initialBench:called.filter(id=>!starting.includes(id)),totalChanges:waves.reduce((n,w)=>n+w.changes.length,0)};
+  }
+  function renderFormationRotation(draft,roster){
+    const settings=state.formationRotation;
+    const plan=buildFormationRotation(draft,roster,settings,p=>!p||isUnavailable(p,state.seasonId));
+    const select=(key,label,values)=>'<label class="formation-rotation-control"><span>'+label+'</span><select class="form-control" data-rotation-setting="'+key+'">'+values.map(([value,text])=>'<option value="'+value+'" '+(settings[key]===value?'selected':'')+'>'+text+'</option>').join('')+'</select></label>';
+    const controls='<div class="formation-rotation-controls">'+select('half','Durata per tempo',[[20,'20 minuti'],[25,'25 minuti'],[30,'30 minuti'],[35,'35 minuti']])+select('interval','Finestra cambi',[[5,'Ogni 5 minuti'],[10,'Ogni 10 minuti'],[15,'Ogni 15 minuti']])+select('maxChanges','Max cambi per finestra',[[1,'1'],[2,'2'],[3,'3'],[4,'4'],[5,'5'],[6,'6']])+'</div>';
+    const byId=new Map(roster.map(p=>[p.id,p]));
+    const player=(id,slot)=>{const p=byId.get(id);return p?'<span class="rotation-player">'+jersey(slot==='GK'?keeperKitNumber(p):p.number,false,slot==='GK')+'<strong>'+esc(name(p))+'</strong></span>':'—';};
+    let body='';
+    if(!plan.ready)body='<p class="notice">'+esc(plan.reason)+'</p>';
+    else{
+      const noMinutes=plan.totals.filter(p=>p.minutes===0);
+      const startersUnavailable=plan.totals.filter(p=>p.starter&&p.unavailable);
+      const rows=plan.waves.map(w=>'<div class="rotation-wave"><div class="rotation-wave-time"><strong>'+w.minute+'′</strong><small>'+(w.half?'Intervallo':w.minute<plan.half?'1° tempo':'2° tempo')+'</small></div><div class="rotation-wave-changes">'+w.changes.map(c=>'<div class="rotation-change"><span class="rotation-role">'+esc(c.role)+'</span><div class="rotation-out"><small>ESCE</small>'+player(c.outgoing,c.slot)+'</div><span class="rotation-arrow" aria-hidden="true">→</span><div class="rotation-in"><small>ENTRA</small>'+player(c.incoming,c.slot)+'</div></div>').join('')+'</div></div>').join('');
+      const minutes=plan.totals.slice().sort((a,b)=>b.minutes-a.minutes||name(byId.get(a.id)).localeCompare(name(byId.get(b.id)),'it')).map(r=>'<div class="rotation-minutes-row"><span>'+esc(name(byId.get(r.id)))+'<small>'+(r.starter?'Titolare':'Riserva')+(r.unavailable?' · Indisponibile':'')+'</small></span><div class="rotation-minutes-track" role="meter" aria-label="Minuti stimati" aria-valuenow="'+r.minutes+'" aria-valuemin="0" aria-valuemax="'+plan.duration+'"><i style="width:'+(r.minutes/plan.duration*100)+'%"></i></div><strong>'+r.minutes+'′</strong></div>').join('');
+      body='<div class="rotation-summary"><span class="chip neutral">'+plan.duration+' minuti</span><span class="chip neutral">'+plan.initialBench.length+' riserve</span><span class="chip neutral">'+plan.totalChanges+' cambi suggeriti</span><span class="chip neutral">'+plan.totals.filter(x=>x.minutes>0).length+'/'+plan.totals.length+' impiegati</span></div>'+
+        (startersUnavailable.length?'<p class="import-error">Titolari indisponibili: '+esc(startersUnavailable.map(x=>name(byId.get(x.id))).join(', '))+'. Correggi la formazione prima della partita.</p>':'')+
+        (rows?'<div class="rotation-timeline">'+rows+'</div>':'<p class="notice">'+(plan.initialBench.length?'Nessun cambio compatibile consigliato con queste impostazioni.':'Nessuna riserva disponibile per effettuare cambi.')+'</p>')+
+        (noMinutes.length?'<p class="notice rotation-warning">Senza minuti stimati: '+esc(noMinutes.map(x=>name(byId.get(x.id))).join(', '))+'. Verifica i ruoli, le disponibilità o aumenta le finestre di cambio.</p>':'')+
+        '<h3 class="panel-title rotation-minutes-heading">Minutaggio previsto</h3><div class="rotation-minutes-list">'+minutes+'</div>';
+    }
+    return '<section class="panel formation-rotation-panel mt-20"><div class="panel-heading"><div><h2 class="panel-title">Proposta di sostituzioni</h2><p class="notice">Piano indicativo per ruotare i convocati, rispettando modulo, ruoli e disponibilità. Il minutaggio viene bilanciato per quanto possibile; il portiere cambia solo con una riserva compatibile.</p></div></div>'+controls+body+'<p class="notice">Ipotesi di cambi volanti con possibilità di rientro; verifica il regolamento della competizione. Adatta il piano a risultato, stanchezza e infortuni. La proposta non modifica né salva la distinta e si ricalcola quando cambia la formazione.</p></section>';
+  }
   function renderFormation(){
     if(!canManageFormation())return intro('ACCESSO RISERVATO','Formazione','Accedi con il tuo account amministratore.');
     if(!state.formationReady)return intro('AREA RISERVATA','Formazione','Archivio privato delle formazioni.')+`<section class="panel"><p>${esc(state.formationError||'Caricamento archivio privato. Se non configurato, esegui aggiornaDatabaseV141() e imposta formationsSpreadsheetId.')}</p><button class="btn btn-secondary" data-action="formation-refresh">↻ Riprova</button></section>`;
@@ -844,7 +926,7 @@
       return `<div class="formation-bench-slot formation-bench-auto"><span class="bench-shirt">${jersey(isKeeper(p)?keeperKitNumber(p):p.number,false,isKeeper(p))}</span><span class="formation-bench-copy"><strong>${esc(name(p))}</strong><small>${esc(rolesText(p.role))}</small></span></div>`;
     }).join('');
     return heading+`<div class="formation-field-frame formation-field-frame-v131"><div class="formation-pitch" role="group" aria-label="Campo calcio a 7"><div class="pitch-midline"></div><div class="pitch-midcircle"></div><div class="pitch-box pitch-box-top"></div><div class="pitch-box pitch-box-bottom"></div><div class="pitch-smallbox pitch-smallbox-top"></div><div class="pitch-smallbox pitch-smallbox-bottom"></div><div class="pitch-goal pitch-goal-top"></div><div class="pitch-goal pitch-goal-bottom"></div>${selectors}</div>
-      <aside class="formation-bench-inside" aria-label="Panchina"><h2>🪑 Riserve <span>${draft.called.length-starters.size}</span></h2><p>I convocati non schierati</p><div class="formation-bench-list">${bench||'<p class="formation-bench-empty">Tutti i convocati sono in campo.</p>'}</div></aside></div>`;
+      <aside class="formation-bench-inside" aria-label="Panchina"><h2>🪑 Riserve <span>${draft.called.length-starters.size}</span></h2><p>I convocati non schierati</p><div class="formation-bench-list">${bench||'<p class="formation-bench-empty">Tutti i convocati sono in campo.</p>'}</div></aside></div>`+renderFormationRotation(draft,roster);
   }
   function changeFormationModule(module){
     const draft=ensureFormationDraft();if(!FORMATION_MODULES[module]||draft.module===module)return;
@@ -2618,6 +2700,11 @@
     if(event.target.matches('#match-form [data-goal-scorer],#match-form [data-goal-assist]')){event.target.closest('#match-form').dataset.goalEdited='1';drawGoalEditor(readGoalEditor());return;}
     if(event.target.matches('[data-athlete-csi]')){const label=event.target.closest('.athlete-flag')?.querySelector('span');if(label)label.textContent=event.target.checked?'Sì':'No';return;}
     if(event.target.dataset.formationCalled){setFormationCalled(event.target.dataset.formationCalled,event.target.checked);return;}
+    if(event.target.matches('select[data-rotation-setting]')){
+      const key=event.target.dataset.rotationSetting,value=Number(event.target.value),allowed={half:[20,25,30,35],interval:[5,10,15],maxChanges:[1,2,3,4,5,6]};
+      if(allowed[key]?.includes(value)){state.formationRotation[key]=value;render();}
+      return;
+    }
     if(event.target.id==='formation-module'){changeFormationModule(event.target.value);return;}
     if(event.target.id==='formation-match'){if(!formationUnsavedGuard()){render();return;}state.formationMatchId=event.target.value;state.formationRecordId='';state.formationNew=false;state.formationDraft=null;render();return;}
     if(event.target.id==='formation-record'){if(event.target.value){if(!switchFormation(event.target.value))render();}else newFormation();return;}
