@@ -937,3 +937,13 @@ button,input,select,textarea{font-family:inherit}
 .rotation-minutes-track i{height:100%;display:block;background:linear-gradient(90deg,#289f9f,#65e2b3);border-radius:8px}
 .rotation-warning{color:#ffd292}
 @media(max-width:620px){.rotation-wave{grid-template-columns:52px minmax(0,1fr);padding:6px;gap:6px}.rotation-wave-time strong{font-size:19px}.rotation-change{grid-template-columns:minmax(0,1fr) 16px minmax(0,1fr);gap:5px}.rotation-role{grid-column:1/-1}.rotation-player{font-size:11px;gap:4px}.rotation-player .shirt-wrap{max-width:29px}.formation-rotation-control{flex-basis:130px}}
+
+
+/* v1.52 — editor sostituzioni */
+.rotation-editor-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:12px 0}
+.rotation-change-actions{grid-column:1/-1;display:flex;justify-content:flex-end;gap:6px;flex-wrap:wrap}
+.rotation-change-actions .btn{min-height:30px}
+.rotation-invalid{margin:14px 0;padding:12px;border:1px solid #884657;background:#422735;border-radius:10px}
+.rotation-invalid h3{margin:0 0 10px;font-size:14px;color:#ffb0bc}
+.rotation-invalid>div{border-top:1px solid #815063;padding:9px 0}
+.rotation-invalid .notice{color:#ffccd4;margin:4px 0}
