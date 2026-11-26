@@ -904,3 +904,36 @@ button,input,select,textarea{font-family:inherit}
 .finance-sort-arrow{font-size:12px;letter-spacing:0;opacity:.65}
 .finance-sort-head[aria-sort="ascending"] .finance-sort-arrow,.finance-sort-head[aria-sort="descending"] .finance-sort-arrow{opacity:1}
 .finance-table td.finance-jersey{text-align:center;min-width:58px}
+
+
+/* v1.51 — proposta di sostituzioni sotto il campo */
+.formation-rotation-panel{margin-top:20px}
+.formation-rotation-panel .panel-heading{margin-bottom:12px}
+.formation-rotation-panel .panel-heading .notice{margin:5px 0 0}
+.formation-rotation-controls{display:flex;flex-wrap:wrap;gap:12px;margin:12px 0 16px}
+.formation-rotation-control{flex:1 1 155px;display:grid;gap:6px;min-width:0;font-size:12px;font-weight:700;color:#c1d3e6}
+.formation-rotation-control select{width:100%;min-width:0}
+.rotation-summary{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0}
+.rotation-timeline{display:grid;gap:10px}
+.rotation-wave{display:grid;grid-template-columns:78px minmax(0,1fr);gap:10px;border:1px solid #2a435b;border-radius:12px;background:#111f32;padding:10px}
+.rotation-wave-time{display:flex;flex-direction:column;justify-content:center;align-items:center;border-right:1px solid #2a435b;color:#83dfca}
+.rotation-wave-time strong{font-size:23px;font-variant-numeric:tabular-nums}
+.rotation-wave-time small{font-size:10px;color:#a6bacf}
+.rotation-wave-changes{display:grid;gap:6px}
+.rotation-change{display:grid;grid-template-columns:minmax(80px,.7fr) minmax(110px,1fr) 24px minmax(110px,1fr);gap:9px;align-items:center;padding:7px;border-radius:8px;background:#182b41}
+.rotation-role{font-size:11px;color:#9eb6cd;font-weight:700}
+.rotation-out,.rotation-in{min-width:0}
+.rotation-out>small,.rotation-in>small{display:block;font-size:9px;font-weight:800;letter-spacing:.07em;margin-bottom:3px}
+.rotation-out>small{color:#ff9daa}.rotation-in>small{color:#6ee6ac}
+.rotation-arrow{font-size:18px;color:#9eb6cd;text-align:center}
+.rotation-player{display:flex;align-items:center;gap:7px;min-width:0;font-size:12px;overflow-wrap:anywhere}
+.rotation-player .shirt-wrap{flex-shrink:0}
+.rotation-minutes-heading{margin:20px 0 12px}
+.rotation-minutes-list{display:grid;gap:8px}
+.rotation-minutes-row{display:grid;grid-template-columns:minmax(100px,1fr) minmax(60px,1.3fr) 45px;gap:10px;align-items:center;padding:8px 10px;background:#15263b;border-radius:8px;font-size:12px}
+.rotation-minutes-row small{display:block;font-size:10px;color:#9eb6cd;margin-top:3px}
+.rotation-minutes-row>strong{text-align:right;font-variant-numeric:tabular-nums;color:#8ce5cf}
+.rotation-minutes-track{height:8px;background:#2c4156;border-radius:8px;overflow:hidden}
+.rotation-minutes-track i{height:100%;display:block;background:linear-gradient(90deg,#289f9f,#65e2b3);border-radius:8px}
+.rotation-warning{color:#ffd292}
+@media(max-width:620px){.rotation-wave{grid-template-columns:52px minmax(0,1fr);padding:6px;gap:6px}.rotation-wave-time strong{font-size:19px}.rotation-change{grid-template-columns:minmax(0,1fr) 16px minmax(0,1fr);gap:5px}.rotation-role{grid-column:1/-1}.rotation-player{font-size:11px;gap:4px}.rotation-player .shirt-wrap{max-width:29px}.formation-rotation-control{flex-basis:130px}}
